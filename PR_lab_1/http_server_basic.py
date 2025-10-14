@@ -18,6 +18,53 @@ if not os.path.isdir(serve_directory):
 
 print(f"Serving files from directory: {serve_directory}")
 
+def generate_directory_listing(directory_path, url_path):
+    """Generate HTML directory listing"""
+    try:
+        # Get list of files and directories
+        items = os.listdir(directory_path)
+        items.sort()
+        
+        # Create HTML content
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Index of {url_path}</title>
+</head>
+<body>
+    <h1>Index of {url_path}</h1>
+    <hr>
+    <pre>"""
+        
+        # Add parent directory link if not root
+        if url_path != '/':
+            parent_path = '/'.join(url_path.rstrip('/').split('/')[:-1])
+            if not parent_path:
+                parent_path = '/'
+            html += f'<a href="{parent_path}">../</a>\n'
+        
+        # Add each item
+        for item in items:
+            item_path = os.path.join(directory_path, item)
+            item_url = url_path.rstrip('/') + '/' + item
+            
+            if os.path.isdir(item_path):
+                # Directory
+                html += f'<a href="{item_url}/">{item}/</a>\n'
+            else:
+                # File
+                html += f'<a href="{item_url}">{item}</a>\n'
+        
+        html += """</pre>
+    <hr>
+</body>
+</html>"""
+        
+        return html
+        
+    except Exception as e:
+        return f"<html><body><h1>Error generating directory listing</h1><p>{e}</p></body></html>"
+
 serverPort = 8080  # Changed to 8080 (common HTTP port)
 
 # Create a TCP welcoming socket
@@ -54,16 +101,31 @@ while True:
             # Create a simple HTTP response
             # Build the file path from the requested path
             if path == '/':
-                # Default to index.html for root path
+                # Default to index.html for root path, but check for directory listing
                 file_path = os.path.join(serve_directory, 'index.html')
+                # If index.html doesn't exist, show directory listing for root
+                if not os.path.isfile(file_path):
+                    file_path = serve_directory
             else:
                 # Remove leading slash and join with serve directory
                 file_path = os.path.join(serve_directory, path.lstrip('/'))
             
-            print(f"Looking for file: {file_path}")
+            print(f"Looking for: {file_path}")
             
+            # Check if it's a directory
+            if os.path.isdir(file_path):
+                print(f"Directory found: {file_path}")
+                # Generate directory listing
+                directory_html = generate_directory_listing(file_path, path)
+                response_body = directory_html
+                content_type = 'text/html'
+                
+                # Send directory listing response
+                response = f"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {len(response_body.encode('utf-8'))}\r\n\r\n{response_body}"
+                connectionSocket.send(response.encode('utf-8'))
+                
             # Check if the file exists
-            if os.path.isfile(file_path):
+            elif os.path.isfile(file_path):
                 # Get file extension to determine content type
                 _, ext = os.path.splitext(file_path.lower())
                 
@@ -122,13 +184,21 @@ while True:
                 response = f"HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nContent-Length: {len(response_body)}\r\n\r\n{response_body}"
                 connectionSocket.send(response.encode())
 
+    except ConnectionAbortedError as e:
+        print(f"Connection aborted by client: {e}")
     except Exception as e:
         print(f"Error: {e}")
-        # Send a simple error response
-        error_response = "HTTP/1.1 500 Internal Server Error\r\n\r\nServer Error"
-        connectionSocket.send(error_response.encode())
+        try:
+            # Send a simple error response
+            error_response = "HTTP/1.1 500 Internal Server Error\r\n\r\nServer Error"
+            connectionSocket.send(error_response.encode())
+        except:
+            print("Could not send error response - connection closed")
 
     finally:
         # Close the connection
         print("Closing connection")
-        connectionSocket.close()
+        try:
+            connectionSocket.close()
+        except:
+            pass
