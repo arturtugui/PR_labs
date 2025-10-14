@@ -1,0 +1,32 @@
+# Ignore git files
+.git
+.gitignore
+
+# Ignore Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Ignore virtual environment
+.venv
+venv/
+env/
+
+# Ignore downloads (will be mounted as volume)
+downloads/
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore documentation files
+README.md
+*.md

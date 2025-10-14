@@ -87,7 +87,7 @@ while True:
 
     try:
         # Receive the HTTP request
-        request = connectionSocket.recv(1024).decode()
+        request = connectionSocket.recv(4096).decode()  # Increased buffer size
         print("Received request:")
         #print(request)
         #print("-" * 40)
@@ -159,7 +159,6 @@ while True:
 </html>"""
                     response = f"HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nContent-Length: {len(response_body)}\r\n\r\n{response_body}"
                     connectionSocket.send(response.encode())
-                    continue
                 
                 # Create HTTP response for supported files
                 if isinstance(response_body, str):
@@ -167,10 +166,15 @@ while True:
                     response = f"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {len(response_body.encode('utf-8'))}\r\n\r\n{response_body}"
                     connectionSocket.send(response.encode('utf-8'))
                 else:
-                    # Binary files (PNG, PDF)
+                    # Binary files (PNG, PDF) - send in chunks
                     response_headers = f"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {len(response_body)}\r\n\r\n"
                     connectionSocket.send(response_headers.encode('utf-8'))
-                    connectionSocket.send(response_body)
+                    
+                    # Send binary data in chunks
+                    chunk_size = 8192  # 8KB chunks
+                    for i in range(0, len(response_body), chunk_size):
+                        chunk = response_body[i:i + chunk_size]
+                        connectionSocket.send(chunk)
                 
             else:
                 # File not found - return 404

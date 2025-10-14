@@ -1,0 +1,27 @@
+services:
+  http-server:
+    build: .
+    container_name: pr_lab1_http_server
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount website directory for easy content updates
+      - ./website:/app/website:ro
+      # Mount downloads directory for client testing
+      - ./downloads:/app/downloads
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    
+  # Optional: Client service for testing
+  http-client:
+    build: .
+    container_name: pr_lab1_http_client
+    depends_on:
+      - http-server
+    volumes:
+      - ./downloads:/app/downloads
+    # Override default command to run client instead of server
+    command: tail -f /dev/null  # Keep container running for manual client testing
+    profiles:
+      - client  # Only start when explicitly requested
