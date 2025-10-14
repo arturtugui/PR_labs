@@ -2,7 +2,7 @@
 
 **Course:** Programare în Rețea
 
-**Author:** Țugui Artur
+**Author:** Țugui Artur, FAF-231
 
 ---
 
@@ -189,82 +189,18 @@ python client.py localhost 8080 index.html ./downloads
 
 ---
 
-## 9. Network Testing (Local Network)
+## 7 Friend's Server Testing:
 
-### 9.1 Network Setup:
+To connect to my friend's server I connected my laptop to his hotspot, entered a browser and accessed [http://192.168.1.4:8080/].
 
-- **Server:** Running in Docker container on local machine
-- **IP Discovery:** `docker inspect pr_lab1_http_server` to get container IP
-- **Local Network Access:** `http://[local-ip]:8080`
+![alt text](lab_report_images/friend2.png)
 
-### 9.2 Friend's Server Testing:
+I also used my client to make a request to their server.
 
 ```bash
-# Test connection to friend's server
-python client.py [friend-ip] 8080 /index.html ./downloads
-
-# Download files from friend's server
-python client.py [friend-ip] 8080 /documents/ ./downloads
+python client.py 192.168.1.4 8080 image.png ./downloads
 ```
 
----
+And this image appeared in my downloads folder.
 
-## 10. Technical Implementation Details
-
-### 10.1 Key Features Implemented:
-
-- ✅ **TCP Socket Server** - Handles one request at a time
-- ✅ **HTTP Request Parsing** - Extracts method, path, version
-- ✅ **File Type Support** - HTML, PNG, PDF with proper MIME types
-- ✅ **Directory Listing** - Generated HTML for directory browsing
-- ✅ **404 Error Handling** - Proper error responses
-- ✅ **HTTP Client** - Download files, print HTML content
-- ✅ **Docker Containerization** - Complete Docker setup
-
-### 10.2 HTTP Response Examples:
-
-#### Successful File Response:
-
-```
-HTTP/1.1 200 OK
-Content-Type: text/html
-Content-Length: 1234
-
-[file content]
-```
-
-#### Directory Listing Response:
-
-```
-HTTP/1.1 200 OK
-Content-Type: text/html
-Content-Length: 567
-
-[generated HTML listing]
-```
-
-#### Error Response:
-
-```
-HTTP/1.1 404 Not Found
-Content-Type: text/html
-Content-Length: 123
-
-[error page HTML]
-```
-
----
-
-## 11. Conclusion
-
-This lab successfully implements a complete HTTP file server with all required features:
-
-- **Base Requirements:** All completed (10/10)
-- **HTTP Client:** Implemented (+2 points)
-- **Directory Listing:** Implemented (+2 points)
-- **Network Testing:** Completed (+1 point)
-- **Docker Setup:** Full containerization
-
-The server handles multiple file types, provides directory browsing, and includes a functional HTTP client for testing. The Docker setup ensures easy deployment and portability across different systems.
-
-**Total Score: 10/10 + 5 bonus points = Perfect Implementation ✅**
+![alt text](lab_report_images/friend.png)
