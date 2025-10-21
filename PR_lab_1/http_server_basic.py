@@ -28,7 +28,7 @@ RATE_LIMIT_WINDOW = 1.0  # seconds
 
 # Set to False to disable 1-second delay (needed for rate limiting tests)
 # Set to True to enable 1-second delay (needed for threading/performance tests)
-ENABLE_PROCESSING_DELAY = True  # Change to False when testing rate limits
+ENABLE_PROCESSING_DELAY = False  # Change to False when testing rate limits
 # ===================================================================
 
 # Global counter to track file hits

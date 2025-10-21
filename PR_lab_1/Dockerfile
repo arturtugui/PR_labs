@@ -4,12 +4,15 @@ FROM python:3.11-slim
 # Set working directory inside container
 WORKDIR /app
 
-# Copy the server and client scripts
+# Copy the server script and test files
 COPY http_server_basic.py .
-COPY client.py .
+COPY test_performance.py .
+COPY test_race_condition.py .
+COPY test_rate_limiting.py .
 
-# Copy the website content
+# Copy the website content and templates
 COPY website/ ./website/
+COPY templates/ ./templates/
 
 # Create downloads directory
 RUN mkdir -p downloads

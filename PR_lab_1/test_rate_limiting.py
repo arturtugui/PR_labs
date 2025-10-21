@@ -126,10 +126,9 @@ def comparison_test():
     print("\n" + "="*70)
     print("RATE LIMITING COMPARISON TEST")
     print("="*70)
-    print("\nMAKE SURE to configure the server:")
-    print("  - Server is running: python http_server_basic.py ./website")
-    print("\nPress Enter to start testing...")
-    input()
+    print("\nMake sure your server is running at http://localhost:8080")
+    print("with ENABLE_RATE_LIMITING = True")
+    print("Starting tests...\n")
     
     # Test 1: Spam (above limit)
     spam_success, spam_blocked, spam_time = spam_test(num_requests=10)

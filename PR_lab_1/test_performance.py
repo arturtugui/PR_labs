@@ -114,20 +114,17 @@ if __name__ == "__main__":
     print("\n" + "="*60)
     print("HTTP SERVER PERFORMANCE TEST")
     print("="*60)
-    print("\nMake sure your server is running with:")
-    print("  python http_server_basic.py ./website")
-    print("\nPress Enter to start testing...")
-    input()
+    print("\nMake sure your server is running at http://localhost:8080")
+    print("Starting tests...\n")
     
     # Test concurrent requests (should be fast with multithreading)
     concurrent_time = test_concurrent_requests(10)
     
-    print("\nWould you like to test sequential requests too? (y/n): ", end="")
-    choice = input().lower()
+    # Automatically test sequential requests for comparison
+    sequential_time = test_sequential_requests(10)
     
-    if choice == 'y':
-        sequential_time = test_sequential_requests(10)
-
+    # Show comparison summary
     print("\nSUMMARY:")
     print(f"Concurrent time: {concurrent_time:.2f} seconds")
     print(f"Sequential time: {sequential_time:.2f} seconds")
+    print(f"Speedup: {sequential_time/concurrent_time:.1f}x faster with threading!\n")

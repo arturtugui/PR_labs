@@ -74,11 +74,13 @@ if __name__ == "__main__":
     print("\n" + "="*70)
     print("HTTP SERVER RACE CONDITION DEMONSTRATION")
     print("="*70)
-    print("\nMake sure your server is running with:")
-    print("  python http_server_basic.py ./website")
-    print("\nThis test will:")
-    print("\nPress Enter to start testing...")
-    input()
+    print("\nMake sure your server is running at http://localhost:8080")
+    print("Starting test...\n")
     
     # Run a single test
     test_race_condition(num_requests=50, target_file="/index.html")
+    
+    print("\nHINT: Check the hit count in the directory listing at:")
+    print("      http://localhost:8080/")
+    print("\nIf ENABLE_COUNTER_LOCKS = False: count will be < 50 (race condition)")
+    print("If ENABLE_COUNTER_LOCKS = True:  count will be = 50 (thread-safe)\n")
