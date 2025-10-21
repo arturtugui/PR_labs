@@ -108,14 +108,15 @@ def handle_command_line_args():
 def build_file_path(path, serve_directory):
     # Build the file path from the requested path
     if path == '/':
-        # Default to index.html for root path, but check for directory listing
-        file_path = os.path.join(serve_directory, 'index.html')
-        # If index.html doesn't exist, show directory listing for root
-        if not os.path.isfile(file_path):
-            file_path = serve_directory
+        # Always show directory listing for root path
+        file_path = serve_directory
     else:
-        # Remove leading slash and join with serve directory
-        file_path = os.path.join(serve_directory, path.lstrip('/'))
+        # Remove leading and trailing slashes, then join with serve directory
+        clean_path = path.strip('/')
+        file_path = os.path.join(serve_directory, clean_path)
+    
+    # Normalize the path to handle different separators
+    file_path = os.path.normpath(file_path)
     return file_path
 
 def determine_content_type(file_path):
@@ -199,8 +200,8 @@ def handle_request(connectionSocket, serve_directory):
                     response_body = directory_html
                     content_type = 'text/html'
                     
-                    # Send directory listing response
-                    response = f"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {len(response_body.encode('utf-8'))}\r\n\r\n{response_body}"
+                    # Send directory listing response with no-cache headers
+                    response = f"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nCache-Control: no-cache, no-store, must-revalidate\r\nPragma: no-cache\r\nExpires: 0\r\nContent-Length: {len(response_body.encode('utf-8'))}\r\n\r\n{response_body}"
                     connectionSocket.send(response.encode('utf-8'))
                     
                 # Check if the file exists
