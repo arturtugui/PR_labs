@@ -1,22 +1,22 @@
 from socket import *
 import os
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 
-# Check command line arguments
-if len(sys.argv) != 2:
-    print("Usage: python http_server_basic.py <directory>")
-    print("Example: python http_server_basic.py ./website")
-    sys.exit(1)
+# Get the directory where this script is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATES_DIR = os.path.join(SCRIPT_DIR, 'templates')
 
-# Get the directory to serve from command line
-serve_directory = sys.argv[1]
 
-# Check if the directory exists
-if not os.path.isdir(serve_directory):
-    print(f"Error: Directory '{serve_directory}' does not exist!")
-    sys.exit(1)
-
-print(f"Serving files from directory: {serve_directory}")
+def load_template(template_name):
+    """Load an HTML template file"""
+    template_path = os.path.join(TEMPLATES_DIR, template_name)
+    try:
+        with open(template_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        return f"<html><body><h1>Error</h1><p>Template {template_name} not found</p></body></html>"
 
 def generate_directory_listing(directory_path, url_path):
     """Generate HTML directory listing"""
@@ -65,128 +65,133 @@ def generate_directory_listing(directory_path, url_path):
     except Exception as e:
         return f"<html><body><h1>Error generating directory listing</h1><p>{e}</p></body></html>"
 
-serverPort = 8080  # Changed to 8080 (common HTTP port)
+def handle_command_line_args():
+    # Check command line arguments
+    if len(sys.argv) != 2:
+        print("Usage: python http_server_basic.py <directory>")
+        print("Example: python http_server_basic.py ./website")
+        sys.exit(1)
 
-# Create a TCP welcoming socket
-serverSocket = socket(AF_INET, SOCK_STREAM)
+    # Get the directory to serve from command line
+    serve_directory = sys.argv[1]
 
-# Allow reusing the address (helpful during development)
-serverSocket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+    # Check if the directory exists
+    if not os.path.isdir(serve_directory):
+        print(f"Error: Directory '{serve_directory}' does not exist!")
+        sys.exit(1)
 
-# Bind the socket to the port
-serverSocket.bind(('', serverPort))
+    return serve_directory
 
-# Listen for incoming connections
-serverSocket.listen(1)
-print(f'HTTP Server is ready at http://localhost:{serverPort}')
+def build_file_path(path, serve_directory):
+    # Build the file path from the requested path
+    if path == '/':
+        # Default to index.html for root path, but check for directory listing
+        file_path = os.path.join(serve_directory, 'index.html')
+        # If index.html doesn't exist, show directory listing for root
+        if not os.path.isfile(file_path):
+            file_path = serve_directory
+    else:
+        # Remove leading slash and join with serve directory
+        file_path = os.path.join(serve_directory, path.lstrip('/'))
+    return file_path
 
-while True:
-    # Accept a new connection
-    connectionSocket, addr = serverSocket.accept()
-    print(f"Connection from {addr}")
+def determine_content_type(file_path):
+    # Debug: Check what file_path actually is
+    if not isinstance(file_path, str):
+        raise TypeError(f"file_path must be str, got {type(file_path)}: {file_path}")
+    
+    # Get file extension
+    _, ext = os.path.splitext(file_path.lower())
+    
+    # Determine content type based on extension
+    if ext == '.html' or ext == '.htm':
+        content_type = 'text/html'
+        # Read text files in text mode
+        with open(file_path, 'r', encoding='utf-8') as f:
+            file_content = f.read()
+        response_body = file_content
+    elif ext == '.png':
+        content_type = 'image/png'
+        # Read binary files in binary mode
+        with open(file_path, 'rb') as f:
+            file_content = f.read()
+        response_body = file_content
+    elif ext == '.pdf':
+        content_type = 'application/pdf'
+        # Read binary files in binary mode
+        with open(file_path, 'rb') as f:
+            file_content = f.read()
+        response_body = file_content
+    else:
+        # Unknown file type - return unsupported type
+        content_type = 'text/html'
+        response_body = load_template('404_unsupported_type.html')
+    
+    return content_type, response_body
 
+def handle_request(connectionSocket, serve_directory):
     try:
-        # Receive the HTTP request
-        request = connectionSocket.recv(4096).decode()  # Increased buffer size
-        print("Received request:")
-        #print(request)
-        #print("-" * 40)
-
-        # Parse the first line of the request
-        if request:
-            first_line = request.split('\n')[0]
-            method, path, version = first_line.split()
-            print(f"Method: {method}, Path: {path}, Version: {version}")
-
-            # Create a simple HTTP response
-            # Build the file path from the requested path
-            if path == '/':
-                # Default to index.html for root path, but check for directory listing
-                file_path = os.path.join(serve_directory, 'index.html')
-                # If index.html doesn't exist, show directory listing for root
-                if not os.path.isfile(file_path):
-                    file_path = serve_directory
-            else:
-                # Remove leading slash and join with serve directory
-                file_path = os.path.join(serve_directory, path.lstrip('/'))
+            # Receive the HTTP request
+            request = connectionSocket.recv(4096).decode()  # Increased buffer size
+            print("Received request")
             
-            print(f"Looking for: {file_path}")
-            
-            # Check if it's a directory
-            if os.path.isdir(file_path):
-                print(f"Directory found: {file_path}")
-                # Generate directory listing
-                directory_html = generate_directory_listing(file_path, path)
-                response_body = directory_html
-                content_type = 'text/html'
+            # Simulate 1 second of work (as required by lab)
+            time.sleep(1)
+
+            # Parse the first line of the request
+            if request:
+                first_line = request.split('\n')[0]
+                method, path, version = first_line.split()
+                print(f"Method: {method}, Path: {path}, Version: {version}")
+
+                # Create a simple HTTP response
+                file_path = build_file_path(path, serve_directory)
                 
-                # Send directory listing response
-                response = f"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {len(response_body.encode('utf-8'))}\r\n\r\n{response_body}"
-                connectionSocket.send(response.encode('utf-8'))
+                print(f"Looking for: {file_path}")
                 
-            # Check if the file exists
-            elif os.path.isfile(file_path):
-                # Get file extension to determine content type
-                _, ext = os.path.splitext(file_path.lower())
-                
-                # Determine content type based on extension
-                if ext == '.html' or ext == '.htm':
+                # Check if it's a directory
+                if os.path.isdir(file_path):
+                    print(f"Directory found: {file_path}")
+                    # Generate directory listing
+                    directory_html = generate_directory_listing(file_path, path)
+                    response_body = directory_html
                     content_type = 'text/html'
-                    # Read text files in text mode
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        file_content = f.read()
-                    response_body = file_content
-                elif ext == '.png':
-                    content_type = 'image/png'
-                    # Read binary files in binary mode
-                    with open(file_path, 'rb') as f:
-                        file_content = f.read()
-                    response_body = file_content
-                elif ext == '.pdf':
-                    content_type = 'application/pdf'
-                    # Read binary files in binary mode
-                    with open(file_path, 'rb') as f:
-                        file_content = f.read()
-                    response_body = file_content
-                else:
-                    # Unknown file type - return 404
-                    response_body = """<html>
-<head><title>404 Not Found</title></head>
-<body>
-<h1>404 - Unsupported File Type</h1>
-<p>The server doesn't support this file type.</p>
-</body>
-</html>"""
-                    response = f"HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nContent-Length: {len(response_body)}\r\n\r\n{response_body}"
-                    connectionSocket.send(response.encode())
-                
-                # Create HTTP response for supported files
-                if isinstance(response_body, str):
-                    # Text files (HTML)
+                    
+                    # Send directory listing response
                     response = f"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {len(response_body.encode('utf-8'))}\r\n\r\n{response_body}"
                     connectionSocket.send(response.encode('utf-8'))
-                else:
-                    # Binary files (PNG, PDF) - send in chunks
-                    response_headers = f"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {len(response_body)}\r\n\r\n"
-                    connectionSocket.send(response_headers.encode('utf-8'))
                     
-                    # Send binary data in chunks
-                    chunk_size = 8192  # 8KB chunks
-                    for i in range(0, len(response_body), chunk_size):
-                        chunk = response_body[i:i + chunk_size]
-                        connectionSocket.send(chunk)
-                
-            else:
-                # File not found - return 404
-                response_body = """<html>
-<head><title>404 Not Found</title></head>
-<body>
-<h1>404 - File Not Found</h1>
-<p>The requested file was not found on this server.</p>
-</body>
-</html>"""
-                response = f"HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nContent-Length: {len(response_body)}\r\n\r\n{response_body}"
-                connectionSocket.send(response.encode())
+                # Check if the file exists
+                elif os.path.isfile(file_path):
+                    # Get file extension and content
+                    content_type, response_body = determine_content_type(file_path)
+
+                    # Check if it's an unsupported file type
+                    if content_type == 'text/html' and '404' in str(response_body):
+                        # Unsupported file type - return 404
+                        response = f"HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nContent-Length: {len(response_body)}\r\n\r\n{response_body}"
+                        connectionSocket.send(response.encode())
+                    # Create HTTP response for supported files
+                    elif isinstance(response_body, str):
+                        # Text files (HTML)
+                        response = f"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {len(response_body.encode('utf-8'))}\r\n\r\n{response_body}"
+                        connectionSocket.send(response.encode('utf-8'))
+                    else:
+                        # Binary files (PNG, PDF) - send in chunks
+                        response_headers = f"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {len(response_body)}\r\n\r\n"
+                        connectionSocket.send(response_headers.encode('utf-8'))
+                        
+                        # Send binary data in chunks
+                        chunk_size = 8192  # 8KB chunks
+                        for i in range(0, len(response_body), chunk_size):
+                            chunk = response_body[i:i + chunk_size]
+                            connectionSocket.send(chunk)
+                    
+                else:
+                    # File not found - return 404
+                    response_body = load_template('404_not_found.html')
+                    response = f"HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nContent-Length: {len(response_body)}\r\n\r\n{response_body}"
+                    connectionSocket.send(response.encode())
 
     except ConnectionAbortedError as e:
         print(f"Connection aborted by client: {e}")
@@ -206,3 +211,37 @@ while True:
             connectionSocket.close()
         except:
             pass
+
+
+def main():
+    serve_directory = handle_command_line_args()
+
+    print(f"Serving files from directory: {serve_directory}")
+
+    serverPort = 8080  # Changed to 8080 (common HTTP port)
+
+    # Create a TCP welcoming socket
+    serverSocket = socket(AF_INET, SOCK_STREAM)
+
+    # Allow reusing the address (helpful during development)
+    serverSocket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+
+    # Bind the socket to the port
+    serverSocket.bind(('', serverPort))
+
+    # Listen for incoming connections (allow up to 20 pending connections)
+    serverSocket.listen(20)
+    print(f'HTTP Server is ready at http://localhost:{serverPort}')
+
+    # Create a pool of 10 worker threads
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        while True:
+            connectionSocket, addr = serverSocket.accept()
+            print(f"Connection from {addr}")
+            
+            # Submit work to the thread pool
+            executor.submit(handle_request, connectionSocket, serve_directory)
+
+
+if __name__ == "__main__":
+    main()
