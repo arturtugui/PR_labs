@@ -8,6 +8,9 @@ from concurrent.futures import ThreadPoolExecutor
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(SCRIPT_DIR, 'templates')
 
+# Global counter to track file hits (naive version - has race condition!)
+file_hits = {}
+
 
 def load_template(template_name):
     """Load an HTML template file"""
@@ -19,43 +22,63 @@ def load_template(template_name):
         return f"<html><body><h1>Error</h1><p>Template {template_name} not found</p></body></html>"
 
 def generate_directory_listing(directory_path, url_path):
-    """Generate HTML directory listing"""
+    """Generate HTML directory listing with hit counts"""
     try:
+        # Debug: show all tracked files
+        print(f"\n=== Generating directory listing for: {directory_path} ===")
+        print(f"Current file_hits dictionary: {file_hits}")
+        print(f"===\n")
+        
         # Get list of files and directories
         items = os.listdir(directory_path)
         items.sort()
         
-        # Create HTML content
+        # Create HTML content with table for better formatting
         html = f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>Index of {url_path}</title>
+    <title>Directory listing for {url_path}</title>
+    <style>
+        table {{ border-collapse: collapse; width: 100%; }}
+        th, td {{ border: 1px solid black; padding: 8px; text-align: left; }}
+        th {{ background-color: #f2f2f2; }}
+    </style>
 </head>
 <body>
-    <h1>Index of {url_path}</h1>
+    <h1>Directory listing for {url_path}</h1>
     <hr>
-    <pre>"""
+    <table>
+        <tr>
+            <th>File / Directory</th>
+            <th>Hits</th>
+        </tr>"""
         
         # Add parent directory link if not root
         if url_path != '/':
             parent_path = '/'.join(url_path.rstrip('/').split('/')[:-1])
             if not parent_path:
                 parent_path = '/'
-            html += f'<a href="{parent_path}">../</a>\n'
+            html += f'<tr><td><a href="{parent_path}">../</a></td><td></td></tr>\n'
         
-        # Add each item
+        # Add each item with hit count
         for item in items:
             item_path = os.path.join(directory_path, item)
             item_url = url_path.rstrip('/') + '/' + item
             
+            # Get hit count for this file/directory
+            hits = file_hits.get(item_path, 0)
+            
+            # Debug: print what we're looking for
+            print(f"Looking up hits for: {item_path}, found: {hits}")
+            
             if os.path.isdir(item_path):
                 # Directory
-                html += f'<a href="{item_url}/">{item}/</a>\n'
+                html += f'<tr><td><a href="{item_url}/">{item}/</a></td><td>{hits}</td></tr>\n'
             else:
                 # File
-                html += f'<a href="{item_url}">{item}</a>\n'
+                html += f'<tr><td><a href="{item_url}">{item}</a></td><td>{hits}</td></tr>\n'
         
-        html += """</pre>
+        html += """    </table>
     <hr>
 </body>
 </html>"""
@@ -148,6 +171,25 @@ def handle_request(connectionSocket, serve_directory):
                 file_path = build_file_path(path, serve_directory)
                 
                 print(f"Looking for: {file_path}")
+                
+                # NAIVE COUNTER INCREMENT (HAS RACE CONDITION!)
+                # This is intentionally split into multiple steps to force race conditions
+                if file_path not in file_hits:
+                    file_hits[file_path] = 0
+                
+                # Add small delay to increase chance of race condition
+                time.sleep(0.001)
+                
+                # Read the current value
+                old_value = file_hits[file_path]
+                
+                # Add another delay between read and write
+                time.sleep(0.001)
+                
+                # Write the new value
+                file_hits[file_path] = old_value + 1
+                
+                print(f"File: {file_path}, Hits: {file_hits[file_path]}")
                 
                 # Check if it's a directory
                 if os.path.isdir(file_path):
