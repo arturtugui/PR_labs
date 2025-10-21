@@ -2,14 +2,19 @@ from socket import *
 import os
 import sys
 import time
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 # Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(SCRIPT_DIR, 'templates')
 
-# Global counter to track file hits (naive version - has race condition!)
+# Global counter to track file hits
 file_hits = {}
+
+# Lock for thread-safe counter access
+# TO DISABLE LOCKS (show race condition): Comment out the lock usage in handle_request()
+hits_lock = threading.Lock()
 
 
 def load_template(template_name):
@@ -65,8 +70,9 @@ def generate_directory_listing(directory_path, url_path):
             item_path = os.path.join(directory_path, item)
             item_url = url_path.rstrip('/') + '/' + item
             
-            # Get hit count for this file/directory
-            hits = file_hits.get(item_path, 0)
+            # Get hit count for this file/directory (thread-safe read)
+            with hits_lock:
+                hits = file_hits.get(item_path, 0)
             
             # Debug: print what we're looking for
             print(f"Looking up hits for: {item_path}, found: {hits}")
@@ -173,24 +179,43 @@ def handle_request(connectionSocket, serve_directory):
                 
                 print(f"Looking for: {file_path}")
                 
-                # NAIVE COUNTER INCREMENT (HAS RACE CONDITION!)
-                # This is intentionally split into multiple steps to force race conditions
-                if file_path not in file_hits:
-                    file_hits[file_path] = 0
+                # ===================================================================
+                # THREAD-SAFE COUNTER INCREMENT (WITH LOCK - NO RACE CONDITION)
+                # ===================================================================
+                # The lock ensures only one thread can modify the counter at a time
+                # TO TEST RACE CONDITION: Comment out the 'with hits_lock:' block
+                # and uncomment the NAIVE version below
+                # ===================================================================
                 
-                # Add small delay to increase chance of race condition
-                time.sleep(0.001)
+                with hits_lock:
+                    # Critical section - only one thread at a time
+                    if file_path not in file_hits:
+                        file_hits[file_path] = 0
+                    file_hits[file_path] += 1
+                    current_hits = file_hits[file_path]
                 
-                # Read the current value
-                old_value = file_hits[file_path]
+                print(f"File: {file_path}, Hits: {current_hits}")
                 
-                # Add another delay between read and write
-                time.sleep(0.001)
-                
-                # Write the new value
-                file_hits[file_path] = old_value + 1
-                
-                print(f"File: {file_path}, Hits: {file_hits[file_path]}")
+                # ===================================================================
+                # NAIVE VERSION (UNCOMMENT TO SHOW RACE CONDITION)
+                # ===================================================================
+                # if file_path not in file_hits:
+                #     file_hits[file_path] = 0
+                # 
+                # # Add small delay to increase chance of race condition
+                # time.sleep(0.001)
+                # 
+                # # Read the current value
+                # old_value = file_hits[file_path]
+                # 
+                # # Add another delay between read and write
+                # time.sleep(0.001)
+                # 
+                # # Write the new value
+                # file_hits[file_path] = old_value + 1
+                # 
+                # print(f"File: {file_path}, Hits: {file_hits[file_path]}")
+                # ===================================================================
                 
                 # Check if it's a directory
                 if os.path.isdir(file_path):

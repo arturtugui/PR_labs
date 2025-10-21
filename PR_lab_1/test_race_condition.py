@@ -69,28 +69,6 @@ def test_race_condition(num_requests=50, target_file="/index.html"):
     print(f"\n{'='*70}")
     print(f"Now check the directory listing at http://localhost:8080/")
     print(f"to see the actual hit count for '{target_file}'")
-    print(f"{'='*70}")
-    print(f"\n⚠️  WITH RACE CONDITION (current implementation):")
-    print(f"   The hit count shown will likely be LESS than {num_requests}")
-    print(f"\n✅ WITHOUT RACE CONDITION (after adding lock):")
-    print(f"   The hit count shown will be EXACTLY {num_requests}")
-    print(f"{'='*70}\n")
-
-def run_multiple_tests():
-    """Run multiple tests to show inconsistency"""
-    print("\n" + "="*70)
-    print("RUNNING MULTIPLE TESTS TO SHOW INCONSISTENCY")
-    print("="*70)
-    print("We'll make the same request multiple times.")
-    print("If there's a race condition, the counts will be inconsistent.\n")
-    
-    for test_num in range(1, 4):
-        print(f"\n--- Test Run #{test_num} ---")
-        test_race_condition(num_requests=30, target_file="/index.html")
-        
-        if test_num < 3:
-            print("\nWaiting 2 seconds before next test...\n")
-            time.sleep(2)
 
 if __name__ == "__main__":
     print("\n" + "="*70)
@@ -99,17 +77,8 @@ if __name__ == "__main__":
     print("\nMake sure your server is running with:")
     print("  python http_server_basic.py ./website")
     print("\nThis test will:")
-    print("  1. Make many concurrent requests to the same file")
-    print("  2. Show that the hit counter has a race condition")
-    print("  3. The final count will be LESS than expected")
     print("\nPress Enter to start testing...")
     input()
     
     # Run a single test
     test_race_condition(num_requests=50, target_file="/index.html")
-    
-    print("\nWould you like to run multiple tests to see inconsistency? (y/n): ", end="")
-    choice = input().lower()
-    
-    if choice == 'y':
-        run_multiple_tests()
