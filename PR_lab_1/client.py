@@ -42,7 +42,7 @@ def main():
     if len(sys.argv) != 5:
         print("Usage: python client.py server_host server_port url_path directory")
         print("Example: python client.py localhost 8080 /index.html ./downloads")
-        print("Example: python client.py localhost 8080 /sample.pdf ./downloads")
+        print("Example: python client.py localhost 8080 /CS_lab_1.pdf ./downloads")
         sys.exit(1)
     
     server_host = sys.argv[1]
