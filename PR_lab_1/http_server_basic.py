@@ -9,12 +9,102 @@ from concurrent.futures import ThreadPoolExecutor
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(SCRIPT_DIR, 'templates')
 
+# ===================================================================
+# COUNTER LOCK CONFIGURATION
+# ===================================================================
+# Set to False to show race condition (naive implementation)
+# Set to True to use locks (thread-safe implementation)
+ENABLE_COUNTER_LOCKS = True  # Change to False to demonstrate race condition
+# ===================================================================
+
+# ===================================================================
+# RATE LIMITING CONFIGURATION
+# ===================================================================
+# Set to False to disable rate limiting (for testing other features)
+# Set to True to enable rate limiting functionality
+ENABLE_RATE_LIMITING = True  # Change to True when testing rate limits
+MAX_REQUESTS_PER_SECOND = 5
+RATE_LIMIT_WINDOW = 1.0  # seconds
+
+# Set to False to disable 1-second delay (needed for rate limiting tests)
+# Set to True to enable 1-second delay (needed for threading/performance tests)
+ENABLE_PROCESSING_DELAY = True  # Change to False when testing rate limits
+# ===================================================================
+
 # Global counter to track file hits
 file_hits = {}
 
 # Lock for thread-safe counter access
-# TO DISABLE LOCKS (show race condition): Comment out the lock usage in handle_request()
 hits_lock = threading.Lock()
+
+# Rate limiting: Track request timestamps per IP address
+# Dictionary structure: {IP_address: [timestamp1, timestamp2, ...]}
+request_history = {}
+rate_limit_lock = threading.Lock()
+
+
+def check_rate_limit(client_ip):
+    """
+    Check if client IP is within rate limit using sliding window algorithm.
+    Returns True if request should be allowed, False if rate limit exceeded.
+    """
+    if not ENABLE_RATE_LIMITING:
+        return True  # Rate limiting disabled
+    
+    current_time = time.time()
+    
+    with rate_limit_lock:
+        # Initialize history for new IP
+        if client_ip not in request_history:
+            request_history[client_ip] = []
+        
+        # Remove timestamps older than the rate limit window (sliding window)
+        cutoff_time = current_time - RATE_LIMIT_WINDOW
+        request_history[client_ip] = [
+            timestamp for timestamp in request_history[client_ip]
+            if timestamp > cutoff_time
+        ]
+        
+        # Check if rate limit exceeded (check BEFORE adding current request)
+        recent_request_count = len(request_history[client_ip])
+        
+        if recent_request_count >= MAX_REQUESTS_PER_SECOND:
+            # Rate limit exceeded - don't add timestamp
+            print(f" Rate limit exceeded for {client_ip}: {recent_request_count} requests in last {RATE_LIMIT_WINDOW}s")
+            return False
+        
+        # Within limit - add current request timestamp
+        request_history[client_ip].append(current_time)
+        print(f" Request allowed for {client_ip}: {recent_request_count + 1}/{MAX_REQUESTS_PER_SECOND} requests")
+        return True
+
+
+def send_rate_limit_response(connectionSocket):
+    """Send 429 Too Many Requests response"""
+    response_body = """<!DOCTYPE html>
+<html>
+<head>
+    <title>429 Too Many Requests</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 50px; }
+        h1 { color: #d9534f; }
+    </style>
+</head>
+<body>
+    <h1>429 Too Many Requests</h1>
+    <p>You have exceeded the rate limit.</p>
+    <p>Maximum allowed: <strong>5 requests per second</strong></p>
+    <p>Please wait a moment before trying again.</p>
+</body>
+</html>"""
+    
+    response = f"HTTP/1.1 429 Too Many Requests\r\n"
+    response += f"Content-Type: text/html\r\n"
+    response += f"Retry-After: 1\r\n"
+    response += f"Content-Length: {len(response_body)}\r\n"
+    response += f"\r\n{response_body}"
+    
+    connectionSocket.send(response.encode())
 
 
 def load_template(template_name):
@@ -70,8 +160,13 @@ def generate_directory_listing(directory_path, url_path):
             item_path = os.path.join(directory_path, item)
             item_url = url_path.rstrip('/') + '/' + item
             
-            # Get hit count for this file/directory (thread-safe read)
-            with hits_lock:
+            # Get hit count for this file/directory
+            if ENABLE_COUNTER_LOCKS:
+                # Thread-safe read with lock
+                with hits_lock:
+                    hits = file_hits.get(item_path, 0)
+            else:
+                # Naive read without lock (may show inconsistent data)
                 hits = file_hits.get(item_path, 0)
             
             # Debug: print what we're looking for
@@ -159,14 +254,25 @@ def determine_content_type(file_path):
     
     return content_type, response_body
 
-def handle_request(connectionSocket, serve_directory):
+def handle_request(connectionSocket, addr, serve_directory):
+    client_ip = addr[0]  # Extract IP address from address tuple
+    
     try:
+            # Check rate limit BEFORE processing request
+            if not check_rate_limit(client_ip):
+                print(f" Blocking request from {client_ip} due to rate limit")
+                send_rate_limit_response(connectionSocket)
+                connectionSocket.close()
+                return
+            
             # Receive the HTTP request
             request = connectionSocket.recv(4096).decode()  # Increased buffer size
-            print("Received request")
+            print(f"Received request from {client_ip}")
             
-            # Simulate 1 second of work (as required by lab)
-            time.sleep(1)
+            # Simulate 1 second of work (for threading/performance tests)
+            # Disable this when testing rate limiting to see the effect clearly
+            if ENABLE_PROCESSING_DELAY:
+                time.sleep(1)
 
             # Parse the first line of the request
             if request:
@@ -180,41 +286,39 @@ def handle_request(connectionSocket, serve_directory):
                 print(f"Looking for: {file_path}")
                 
                 # ===================================================================
-                # THREAD-SAFE COUNTER INCREMENT (WITH LOCK - NO RACE CONDITION)
-                # ===================================================================
-                # The lock ensures only one thread can modify the counter at a time
-                # TO TEST RACE CONDITION: Comment out the 'with hits_lock:' block
-                # and uncomment the NAIVE version below
+                # COUNTER INCREMENT - Toggle with ENABLE_COUNTER_LOCKS flag
                 # ===================================================================
                 
-                with hits_lock:
-                    # Critical section - only one thread at a time
+                if ENABLE_COUNTER_LOCKS:
+                    # THREAD-SAFE VERSION (WITH LOCK - NO RACE CONDITION)
+                    with hits_lock:
+                        # Critical section - only one thread at a time
+                        if file_path not in file_hits:
+                            file_hits[file_path] = 0
+                        file_hits[file_path] += 1
+                        current_hits = file_hits[file_path]
+                    
+                    print(f"File: {file_path}, Hits: {current_hits}")
+                
+                else:
+                    # NAIVE VERSION (NO LOCK - HAS RACE CONDITION)
                     if file_path not in file_hits:
                         file_hits[file_path] = 0
-                    file_hits[file_path] += 1
-                    current_hits = file_hits[file_path]
+                    
+                    # Add small delay to increase chance of race condition
+                    time.sleep(0.001)
+                    
+                    # Read the current value
+                    old_value = file_hits[file_path]
+                    
+                    # Add another delay between read and write
+                    time.sleep(0.001)
+                    
+                    # Write the new value
+                    file_hits[file_path] = old_value + 1
+                    
+                    print(f"File: {file_path}, Hits: {file_hits[file_path]}")
                 
-                print(f"File: {file_path}, Hits: {current_hits}")
-                
-                # ===================================================================
-                # NAIVE VERSION (UNCOMMENT TO SHOW RACE CONDITION)
-                # ===================================================================
-                # if file_path not in file_hits:
-                #     file_hits[file_path] = 0
-                # 
-                # # Add small delay to increase chance of race condition
-                # time.sleep(0.001)
-                # 
-                # # Read the current value
-                # old_value = file_hits[file_path]
-                # 
-                # # Add another delay between read and write
-                # time.sleep(0.001)
-                # 
-                # # Write the new value
-                # file_hits[file_path] = old_value + 1
-                # 
-                # print(f"File: {file_path}, Hits: {file_hits[file_path]}")
                 # ===================================================================
                 
                 # Check if it's a directory
@@ -307,8 +411,8 @@ def main():
             connectionSocket, addr = serverSocket.accept()
             print(f"Connection from {addr}")
             
-            # Submit work to the thread pool
-            executor.submit(handle_request, connectionSocket, serve_directory)
+            # Submit work to the thread pool (pass addr for rate limiting)
+            executor.submit(handle_request, connectionSocket, addr, serve_directory)
 
 
 if __name__ == "__main__":
