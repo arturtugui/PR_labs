@@ -29,4 +29,8 @@ Thumbs.db
 
 # Ignore documentation files
 README.md
-*.md
+LAB_REPORT.md
+lab_report_images/
+
+# Ignore TCP socket examples (not needed for HTTP server)
+TCPSocketsExample/
