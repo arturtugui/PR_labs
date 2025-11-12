@@ -14,12 +14,19 @@ import { Board, TestPosition } from './board.js';
  * @throws Error if an error occurs reading or parsing the board
  */
 async function simulationMain(): Promise<void> {
-    const filename = 'boards/perfect.txt';
+    const filename = 'boards/zoom.txt';
     const board: Board = await Board.parseFromFile(filename);
     const size = 3;
-    const players = 5; // Increased to test concurrency
-    const tries = 10;
-    const maxDelayMilliseconds = 100;
+    
+    // ============================================================
+    // TO TEST: "4 players, timeouts 0.1-2ms, 100 moves each"
+    // Change these three lines:
+    const players = 4;                    // <- Change to: 4
+    const tries = 100;                     // <- Change to: 100
+    const maxDelayMilliseconds = 2;     // <- Change to: 2 (for 0-2ms range)
+    // Note: Math.random() * maxDelayMilliseconds gives range [0, maxDelayMilliseconds)
+    // So maxDelayMilliseconds = 2 gives timeouts between 0 and 2ms
+    // ============================================================
 
     console.log(`Starting simulation with ${players} player(s) on a ${size}x${size} board`);
     console.log(`Each player will attempt ${tries} flips`);
