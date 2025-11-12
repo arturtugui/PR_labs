@@ -918,5 +918,190 @@ describe('Board internal classes', function() {
             assert(bobLines[4]?.startsWith('my '), 'bob should still control (1,0)');
         });
     });
+
+    describe('mapCards() - Problem 4', function() {
+        
+        it('transforms all cards with a simple function', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Transform function: unicorn -> horse, rainbow -> sunshine
+            const transform = async (card: string): Promise<string> => {
+                if (card === '🦄') return '🐴';
+                if (card === '🌈') return '☀️';
+                return card;
+            };
+            
+            await board.mapCards(transform);
+            
+            // Check that all cards were transformed
+            const state = board.getBoardState('alice');
+            const lines = state.split('\n');
+            
+            // All cards should be down initially
+            for (let i = 1; i <= 9; i++) {
+                assert.strictEqual(lines[i], 'down', `card ${i} should still be face-down`);
+            }
+            
+            // Flip a card to verify content changed
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            const stateAfterFlip = board.getBoardState('alice');
+            const linesAfterFlip = stateAfterFlip.split('\n');
+            
+            // Should be transformed (🦄 -> 🐴)
+            assert(linesAfterFlip[1]?.includes('🐴'), 'card should be transformed');
+        });
+
+        it('maintains pairwise consistency during transformation', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Flip two matching cards
+            await board.flipCard(new TestPosition(0, 0), 'alice'); // 🦄
+            await board.flipCard(new TestPosition(0, 1), 'alice'); // 🦄 - match!
+            
+            // Transform with a slow async function
+            const transform = async (card: string): Promise<string> => {
+                await new Promise(resolve => setTimeout(resolve, 10)); // Simulate slow transformation
+                return card + '_transformed';
+            };
+            
+            // Start the map operation
+            const mapPromise = board.mapCards(transform);
+            
+            // While map is running, check board state
+            await new Promise(resolve => setTimeout(resolve, 5));
+            const stateDuringMap = board.getBoardState('alice');
+            const linesDuringMap = stateDuringMap.split('\n');
+            
+            // Both cards should still be visible and controlled (Rules say matched cards stay controlled until cleanup)
+            assert(linesDuringMap[1]?.startsWith('my '), 'first card should still be controlled');
+            assert(linesDuringMap[2]?.startsWith('my '), 'second card should still be controlled');
+            
+            // Wait for map to complete
+            await mapPromise;
+            
+            // Check that both cards were transformed
+            const stateAfterMap = board.getBoardState('alice');
+            const linesAfterMap = stateAfterMap.split('\n');
+            
+            assert(linesAfterMap[1]?.includes('_transformed'), 'first card should be transformed');
+            assert(linesAfterMap[2]?.includes('_transformed'), 'second card should be transformed');
+        });
+
+        it('preserves face-up and face-down state', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Flip some cards face up
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(1, 0), 'alice');
+            
+            // Get state before map
+            const stateBefore = board.getBoardState('alice');
+            const linesBefore = stateBefore.split('\n');
+            
+            // Transform all cards
+            const transform = async (card: string): Promise<string> => {
+                return 'NEW_' + card;
+            };
+            
+            await board.mapCards(transform);
+            
+            // Get state after map
+            const stateAfter = board.getBoardState('alice');
+            const linesAfter = stateAfter.split('\n');
+            
+            // Face-up cards should still be up (positions 1 and 4 in output)
+            assert(linesAfter[1]?.startsWith('up '), '(0,0) should still be face-up');
+            assert(linesAfter[4]?.startsWith('up '), '(1,0) should still be face-up');
+            
+            // Face-down cards should still be down
+            assert.strictEqual(linesAfter[2], 'down', '(0,1) should still be face-down');
+            
+            // Content should be transformed
+            assert(linesAfter[1]?.includes('NEW_'), 'content should be transformed');
+        });
+
+        it('preserves control state during and after transformation', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Alice controls a card
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            
+            // Verify alice controls it
+            let state = board.getBoardState('alice');
+            let lines = state.split('\n');
+            assert(lines[1]?.startsWith('my '), 'alice should control (0,0)');
+            
+            // Transform all cards
+            const transform = async (card: string): Promise<string> => {
+                await new Promise(resolve => setTimeout(resolve, 5));
+                return card.toUpperCase();
+            };
+            
+            await board.mapCards(transform);
+            
+            // Alice should still control the card
+            state = board.getBoardState('alice');
+            lines = state.split('\n');
+            assert(lines[1]?.startsWith('my '), 'alice should still control (0,0) after map');
+        });
+
+        it('allows interleaving with flip operations', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Start a slow map operation
+            const transform = async (card: string): Promise<string> => {
+                await new Promise(resolve => setTimeout(resolve, 20));
+                return card + '_mapped';
+            };
+            
+            const mapPromise = board.mapCards(transform);
+            
+            // While map is running, flip a card
+            await new Promise(resolve => setTimeout(resolve, 5));
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            
+            // Flip should succeed without waiting for map
+            const state = board.getBoardState('alice');
+            const lines = state.split('\n');
+            assert(lines[1]?.startsWith('my '), 'flip should succeed during map');
+            
+            // Wait for map to complete
+            await mapPromise;
+            
+            // Card should be both flipped and transformed
+            const stateAfter = board.getBoardState('alice');
+            const linesAfter = stateAfter.split('\n');
+            assert(linesAfter[1]?.includes('_mapped'), 'card should be transformed');
+        });
+
+        it('handles mathematical function property: same input gives same output', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Transform function that's deterministic
+            const transformations = new Map<string, string>();
+            const transform = async (card: string): Promise<string> => {
+                if (!transformations.has(card)) {
+                    transformations.set(card, card + '_v1');
+                }
+                return transformations.get(card)!;
+            };
+            
+            await board.mapCards(transform);
+            
+            // All unicorns should have been transformed the same way
+            // Flip two unicorn positions
+            await board.flipCard(new TestPosition(0, 0), 'alice'); // Was 🦄
+            await board.flipCard(new TestPosition(0, 1), 'alice'); // Was 🦄
+            
+            const state = board.getBoardState('alice');
+            const lines = state.split('\n');
+            
+            // Both should have same transformed content
+            const content1 = lines[1]?.split(' ')[1];
+            const content2 = lines[2]?.split(' ')[1];
+            assert.strictEqual(content1, content2, 'matching cards should transform to same content');
+        });
+    });
 });
+
 

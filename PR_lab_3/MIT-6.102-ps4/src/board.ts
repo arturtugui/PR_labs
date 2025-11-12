@@ -620,6 +620,72 @@ export class Board {
     public doesPlayerExist(playerId: string): boolean {
         return this.playerStates.has(playerId);
     }
+
+    /**
+     * Apply a transformation function to all cards on the board.
+     * Maintains pairwise consistency: if two cards match before transformation,
+     * they will match after transformation (since f is a mathematical function).
+     * 
+     * This operation allows interleaving with other operations and does not block.
+     * 
+     * @param f transformation function that maps card content to new card content
+     *          Must be a mathematical function (same input always gives same output)
+     * @returns Promise that resolves when all cards have been transformed
+     */
+    public async mapCards(f: (card: string) => Promise<string>): Promise<void> {
+        // Strategy: To maintain pairwise consistency, we need to ensure that
+        // if two cards have the same content, they get transformed together.
+        // Since f is a mathematical function, f(c) is always the same for a given c.
+        // 
+        // We can transform cards one at a time, but we need to ensure atomicity
+        // of each individual card transformation. Since we're replacing content
+        // but not changing face-up/control state, we can do this without locks.
+        
+        // Build a map of unique card contents to their positions
+        const contentToPositions = new Map<string, Position[]>();
+        
+        for (let row = 0; row < this.rows; row++) {
+            for (let col = 0; col < this.cols; col++) {
+                const card = this.cards[row]?.[col];
+                if (card !== undefined) {
+                    const content = card.content;
+                    if (!contentToPositions.has(content)) {
+                        contentToPositions.set(content, []);
+                    }
+                    contentToPositions.get(content)!.push(new Position(row, col));
+                }
+            }
+        }
+        
+        // For each unique content, transform it once and apply to all matching cards
+        // We do this in parallel to allow interleaving
+        const transformations: Promise<void>[] = [];
+        
+        for (const [originalContent, positions] of contentToPositions.entries()) {
+            const transformPromise = (async () => {
+                // Call f once for this content
+                const newContent = await f(originalContent);
+                
+                // Atomically update all cards with this content
+                // This ensures pairwise consistency: all matching cards change together
+                for (const pos of positions) {
+                    const card = this.cards[pos.row]?.[pos.col];
+                    if (card !== undefined && card.content === originalContent) {
+                        // Update the card content
+                        // We need to create a new Card object since content is readonly
+                        this.cards[pos.row]![pos.col] = new Card(newContent, card.faceUp);
+                    }
+                }
+            })();
+            
+            transformations.push(transformPromise);
+        }
+        
+        // Wait for all transformations to complete
+        await Promise.all(transformations);
+        
+        this.checkRep();
+    }
 }
 
 /**
