@@ -252,7 +252,7 @@ export class Board {
                     return `Rule 2-B: Card ${cardContent} already controlled (first card ${firstContent} relinquished)`;
                 }
                 
-                if (nowControlling === 0 && nowCleanup === 2) {
+                if (nowCleanup === 2) {
                     // Check if they match
                     if (card && firstCard && card.matches(firstCard)) {
                         return `Rule 2-D: MATCH! Both ${cardContent} will be removed on next flip`;
@@ -263,6 +263,17 @@ export class Board {
                 
                 // Unexpected state
                 return `? Second card flip (wasCtrl=${wasControlling}, nowCtrl=${nowControlling}, cleanup=${nowCleanup})`;
+            } else if (wasControlling === 2) {
+                // Was controlling 2 matched cards, now trying to flip
+                if (hadCleanup === 2 && nowCleanup === 0) {
+                    // Cleanup was performed
+                    if (nowControlling === 1) {
+                        return `Rule 3-A cleanup done (matched pair removed), then Rule 1-B/C: card ${cardContent} controlled`;
+                    } else {
+                        return `Rule 3-A cleanup done (matched pair removed), then Rule 1-A: no card (failed)`;
+                    }
+                }
+                return `? Unclear after match (wasCtrl=${wasControlling}, nowCtrl=${nowControlling}, cleanup=${nowCleanup})`;
             }
             
             return `? Unclear (wasCtrl=${wasControlling}, nowCtrl=${nowControlling}, cleanup=${nowCleanup})`;
@@ -388,18 +399,19 @@ export class Board {
                 card.faceUp = true;
             }
 
-            // Now control the second card
-            state.controlled.push(position);
-
             // Rule 2-D: if cards match → keep control of both, mark for cleanup
             if (card.matches(firstCard)) {
                 // Cards match - mark for cleanup, but KEEP them in controlled
                 // They stay as "my" cards until cleanup removes them
+                state.controlled.push(position); // Add second card to controlled
                 state.toCleanUp = [firstPos, position];
                 // DON'T clear controlled - cards remain controlled until cleanup
                 this.checkRep();
                 return;
             }
+
+            // Now control the second card (for non-matching case)
+            state.controlled.push(position);
 
             // Rule 2-E: cards don't match → relinquish control, mark for cleanup
             const secondPos = position;
