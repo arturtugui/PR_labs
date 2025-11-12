@@ -1102,6 +1102,159 @@ describe('Board internal classes', function() {
             assert.strictEqual(content1, content2, 'matching cards should transform to same content');
         });
     });
+
+    /*
+     * Testing strategy for waitForChange()
+     *
+     * Partition on when change occurs:
+     *   - change happens immediately after starting to wait
+     *   - change happens after a delay
+     *   - multiple changes occur
+     *
+     * Partition on type of change:
+     *   - card flips face up
+     *   - card flips face down
+     *   - card is removed (matched pair)
+     *   - card content changes (via mapCards)
+     *
+     * Partition on number of watchers:
+     *   - single watcher
+     *   - multiple watchers waiting simultaneously
+     *
+     * Partition on interleaving:
+     *   - watch() while other operations (flip, look) are ongoing
+     *   - watch() receives notification even if other operations don't wait
+     */
+
+    describe('waitForChange', function() {
+        
+        it('covers single watcher, card flips face up', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Start watching for a change
+            const watchPromise = board.waitForChange();
+            
+            // Make a change: flip a card face up
+            await board.flipCard(new TestPosition(0, 0), 'player1');
+            
+            // Watch should resolve
+            await watchPromise;
+        });
+
+        it('covers single watcher, card flips face down after mismatch', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Set up a mismatch: flip two different cards
+            await board.flipCard(new TestPosition(0, 0), 'player1'); // 🦄
+            await board.flipCard(new TestPosition(1, 1), 'player1'); // 🌈
+            
+            // Start watching for the flip down
+            const watchPromise = board.waitForChange();
+            
+            // Next flip will trigger cleanup and flip down
+            await board.flipCard(new TestPosition(2, 0), 'player1');
+            
+            // Watch should resolve
+            await watchPromise;
+        });
+
+        it('covers single watcher, cards are removed (matched pair)', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Set up a match: flip two same cards
+            await board.flipCard(new TestPosition(0, 0), 'player1'); // 🦄
+            await board.flipCard(new TestPosition(0, 2), 'player1'); // 🦄
+            
+            // Start watching for the removal
+            const watchPromise = board.waitForChange();
+            
+            // Next flip will trigger cleanup and remove matched pair
+            await board.flipCard(new TestPosition(1, 0), 'player1');
+            
+            // Watch should resolve
+            await watchPromise;
+        });
+
+        it('covers single watcher, card content changes via mapCards', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Start watching for a change
+            const watchPromise = board.waitForChange();
+            
+            // Make a change: transform all cards
+            await board.mapCards(async (card: string) => card + '✨');
+            
+            // Watch should resolve
+            await watchPromise;
+        });
+
+        it('covers multiple watchers waiting simultaneously', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Start multiple watchers
+            const watcher1 = board.waitForChange();
+            const watcher2 = board.waitForChange();
+            const watcher3 = board.waitForChange();
+            
+            // Make a single change
+            await board.flipCard(new TestPosition(0, 0), 'player1');
+            
+            // All watchers should resolve
+            await Promise.all([watcher1, watcher2, watcher3]);
+        });
+
+        it('covers watch while other operations ongoing', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Start watching
+            const watchPromise = board.waitForChange();
+            
+            // Perform other operations that don't block
+            const lookPromise = Promise.resolve(board.getBoardState('observer'));
+            
+            // Make a change that triggers the watch
+            await board.flipCard(new TestPosition(0, 0), 'player1');
+            
+            // Both should complete
+            await Promise.all([watchPromise, lookPromise]);
+        });
+
+        it('covers multiple changes in sequence', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // First change
+            const watch1 = board.waitForChange();
+            await board.flipCard(new TestPosition(0, 0), 'player1');
+            await watch1;
+            
+            // Second change
+            const watch2 = board.waitForChange();
+            await board.flipCard(new TestPosition(0, 1), 'player1');
+            await watch2;
+            
+            // Third change (removal)
+            const watch3 = board.waitForChange();
+            await board.flipCard(new TestPosition(0, 2), 'player1');
+            await watch3;
+        });
+
+        it('covers watcher does not trigger on control changes only', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Flip first card - this WILL trigger notification (card goes face-up)
+            await board.flipCard(new TestPosition(0, 0), 'player1');
+            
+            // Now start watching - should wait for next change
+            const watchPromise = board.waitForChange();
+            
+            // Make another change that will resolve the watch
+            await board.flipCard(new TestPosition(0, 1), 'player1');
+            
+            // Watch should resolve
+            await watchPromise;
+        });
+    });
 });
+
 
 

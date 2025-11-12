@@ -38,6 +38,7 @@ export class Board {
     private readonly cards : (Card | undefined)[][];
     private readonly playerStates: Map<string, PlayerState>;
     private readonly waitQueues: Map<string, Deferred<void>[]>; // Map from position key to waiting promises
+    private readonly changeListeners: Deferred<void>[]; // Listeners waiting for board changes
 
     // Abstraction function:
     //   AF(rows, cols, cards, playerStates) = a Memory Scramble game board with dimensions
@@ -74,6 +75,7 @@ export class Board {
         this.cards = cards;
         this.playerStates = new Map<string, PlayerState>();
         this.waitQueues = new Map<string, Deferred<void>[]>();
+        this.changeListeners = [];
         this.checkRep();
     }
 
@@ -354,6 +356,9 @@ export class Board {
                     this.cards[firstPos.row]![firstPos.col] = undefined;
                     this.cards[secondPos.row]![secondPos.col] = undefined;
                     
+                    // Notify change listeners that cards were removed
+                    this.notifyChangeListeners();
+                    
                     // Notify anyone waiting on these positions that they're now available
                     this.notifyWaiters(firstPos);
                     this.notifyWaiters(secondPos);
@@ -540,6 +545,7 @@ export class Board {
             throw new Error(`Bug: Attempted to flip face-up card at ${position.toString()} face up again`);
         }
         card.faceUp = true;
+        this.notifyChangeListeners();
     }
 
     /**
@@ -560,6 +566,7 @@ export class Board {
         }
         
         card.faceUp = false;
+        this.notifyChangeListeners();
     }
 
     /**
@@ -615,23 +622,6 @@ export class Board {
         }
         
         return lines.join('\n');
-    }
-
-    /**
-     * Get all card contents including face-down cards (for debugging/visualization)
-     * @returns 2D array of card contents, undefined for empty positions
-     */
-    public getAllCardContents(): (string | undefined)[][] {
-        const contents: (string | undefined)[][] = [];
-        for (let row = 0; row < this.rows; row++) {
-            const rowContents: (string | undefined)[] = [];
-            for (let col = 0; col < this.cols; col++) {
-                const card = this.cards[row]?.[col];
-                rowContents.push(card?.content);
-            }
-            contents.push(rowContents);
-        }
-        return contents;
     }
 
     public doesPlayerExist(playerId: string): boolean {
@@ -701,7 +691,35 @@ export class Board {
         // Wait for all transformations to complete
         await Promise.all(transformations);
         
+        // Notify watchers that the board has changed
+        this.notifyChangeListeners();
+        
         this.checkRep();
+    }
+
+    /**
+     * Wait for the next change to the board state.
+     * A change is defined as any cards turning face up or face down, being removed from the board,
+     * or changing from one string to a different string.
+     * 
+     * @returns a promise that resolves when the board state changes
+     */
+    public async waitForChange(): Promise<void> {
+        const deferred = new Deferred<void>();
+        this.changeListeners.push(deferred);
+        return deferred.promise;
+    }
+
+    /**
+     * Notify all waiting change listeners that the board has changed.
+     * This is called whenever cards flip up/down, are removed, or have their content modified.
+     */
+    private notifyChangeListeners(): void {
+        // Notify all waiting listeners
+        const listeners = this.changeListeners.splice(0); // Remove all and return them
+        for (const listener of listeners) {
+            listener.resolve();
+        }
     }
 }
 
