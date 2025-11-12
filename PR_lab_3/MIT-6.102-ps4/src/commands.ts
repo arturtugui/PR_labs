@@ -42,7 +42,7 @@ export async function look(board: Board, playerId: string): Promise<string> {
  *         in the ps4 handout.
  */
 export async function flip(board: Board, playerId: string, row: number, column: number): Promise<string> {
-    board.flipCard(new TestPosition(row, column), playerId);
+    await board.flipCard(new TestPosition(row, column), playerId);
     return board.getBoardState(playerId);
 }
 

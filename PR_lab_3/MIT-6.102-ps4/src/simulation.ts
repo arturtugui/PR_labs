@@ -17,9 +17,9 @@ async function simulationMain(): Promise<void> {
     const filename = 'boards/perfect.txt';
     const board: Board = await Board.parseFromFile(filename);
     const size = 3;
-    const players = 1;
+    const players = 5; // Increased to test concurrency
     const tries = 10;
-    const maxDelayMilliseconds = 100;
+    const maxDelayMilliseconds = 10;
 
     console.log(`Starting simulation with ${players} player(s) on a ${size}x${size} board`);
     console.log(`Each player will attempt ${tries} flips`);
@@ -58,7 +58,7 @@ async function simulationMain(): Promise<void> {
             console.log(`\n${playerId} - Turn ${jj + 1}:`);
             console.log(`  FIRST card at (${firstRow}, ${firstCol})`);
             
-            const firstResult = board.flipCardWithLogging(firstPosition, playerId);
+            const firstResult = await board.flipCardWithLogging(firstPosition, playerId);
             console.log(`    -> ${firstResult}`);
             
             if (firstResult.includes('Rule 1-A') || firstResult.includes('failed')) {
@@ -75,7 +75,7 @@ async function simulationMain(): Promise<void> {
             
             console.log(`  SECOND card at (${secondRow}, ${secondCol})`);
             
-            const secondResult = board.flipCardWithLogging(secondPosition, playerId);
+            const secondResult = await board.flipCardWithLogging(secondPosition, playerId);
             console.log(`    -> ${secondResult}`);
             
             if (secondResult.includes('Rule 2-D')) {

@@ -351,9 +351,9 @@ describe('Board internal classes', function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
             // Create a scenario with removed cards
-            board.flipCard(new TestPosition(0, 0), 'alice');
-            board.flipCard(new TestPosition(0, 1), 'alice'); // Match
-            board.flipCard(new TestPosition(1, 0), 'alice'); // Triggers cleanup, removes (0,0) and (0,1)
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(0, 1), 'alice'); // Match
+            await board.flipCard(new TestPosition(1, 0), 'alice'); // Triggers cleanup, removes (0,0) and (0,1)
             
             const beforeState = board.getBoardState('alice');
             const beforeLines = beforeState.split('\n');
@@ -364,7 +364,7 @@ describe('Board internal classes', function() {
             
             // // Try to flip removed position - should fail (Rule 2-A applies since alice controls 1 card)
             // // This is treated as a SECOND card flip, so alice relinquishes her first card
-            // board.flipCard(new TestPosition(0, 0), 'alice');
+            // await board.flipCard(new TestPosition(0, 0), 'alice');
             
             // const afterState = board.getBoardState('alice');
             // const afterLines = afterState.split('\n');
@@ -376,7 +376,7 @@ describe('Board internal classes', function() {
         it('covers Rule 1-B: flip face-down card, flips up and controls', async function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
-            board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(0, 0), 'alice');
             
             const state = board.getBoardState('alice');
             const lines = state.split('\n');
@@ -399,8 +399,8 @@ describe('Board internal classes', function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
             // Alice flips two non-matching cards
-            board.flipCard(new TestPosition(0, 0), 'alice');
-            board.flipCard(new TestPosition(1, 0), 'alice'); // Don't match
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(1, 0), 'alice'); // Don't match
             
             // Cards are face-up but alice doesn't control them anymore
             let state = board.getBoardState('alice');
@@ -409,7 +409,7 @@ describe('Board internal classes', function() {
             assert(lines[4]?.startsWith('up '), '(1,0) should be face-up but not controlled');
             
             // Bob takes control of alice's first card (Rule 1-C)
-            board.flipCard(new TestPosition(0, 0), 'bob');
+            await board.flipCard(new TestPosition(0, 0), 'bob');
             
             const bobState = board.getBoardState('bob');
             const bobLines = bobState.split('\n');
@@ -420,7 +420,124 @@ describe('Board internal classes', function() {
             assert(aliceLines[1]?.startsWith('up '), 'alice should see (0,0) as face-up but not controlled');
         });
 
-        //TODO 1-D after problem 3 is done
+        it('covers Rule 1-D: waiting for controlled card (async)', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Alice flips and controls a card
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            
+            let aliceState = board.getBoardState('alice');
+            let aliceLines = aliceState.split('\n');
+            assert(aliceLines[1]?.startsWith('my '), 'alice should control (0,0)');
+            
+            // Bob tries to flip alice's card as first card - should wait
+            const bobFlipPromise = board.flipCard(new TestPosition(0, 0), 'bob');
+            
+            // Give a tiny delay to ensure Bob starts waiting
+            await new Promise(resolve => setTimeout(resolve, 10));
+            
+            // Alice hasn't relinquished yet, so Bob should still be waiting
+            // We can't directly observe the waiting, but we can verify Bob doesn't have the card yet
+            let bobState = board.getBoardState('bob');
+            let bobLines = bobState.split('\n');
+            assert(!bobLines[1]?.startsWith('my '), 'bob should not control (0,0) yet while waiting');
+            
+            // Alice makes a mismatch, relinquishing (0,0)
+            await board.flipCard(new TestPosition(1, 0), 'alice');
+            
+            // Now Bob's flip should complete (he was waiting and now the card is available)
+            await bobFlipPromise;
+            
+            // Verify Bob now controls the card
+            bobState = board.getBoardState('bob');
+            bobLines = bobState.split('\n');
+            assert(bobLines[1]?.startsWith('my '), 'bob should control (0,0) after alice relinquished');
+        });
+
+        it('covers Rule 1-D: multiple players waiting, card released multiple times', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Alice controls a card
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            
+            // Bob tries to flip alice's card - should wait
+            const bobFlipPromise = board.flipCard(new TestPosition(0, 0), 'bob');
+            
+            // Short delay
+            await new Promise(resolve => setTimeout(resolve, 5));
+            
+            // Alice relinquishes by making a mismatch
+            await board.flipCard(new TestPosition(1, 0), 'alice');
+            
+            // Bob's flip should complete and he gets the card
+            await bobFlipPromise;
+            
+            const bobState = board.getBoardState('bob');
+            assert(bobState.split('\n')[1]?.startsWith('my '), 'bob should control (0,0)');
+            
+            // Now Charlie tries to flip - should wait for Bob
+            const charlieFlipPromise = board.flipCard(new TestPosition(0, 0), 'charlie');
+            
+            // Short delay
+            await new Promise(resolve => setTimeout(resolve, 5));
+            
+            // Bob makes a mismatch, relinquishing
+            await board.flipCard(new TestPosition(2, 0), 'bob');
+            
+            // Charlie's flip should complete
+            await charlieFlipPromise;
+            
+            const charlieState = board.getBoardState('charlie');
+            assert(charlieState.split('\n')[1]?.startsWith('my '), 'charlie should control (0,0) after bob relinquished');
+        });
+
+        it('covers Rule 1-D: player waits with pending cleanup', async function() {
+            this.timeout(5000); // Increase timeout to see what happens
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Alice makes a mismatch, has cleanup pending
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(1, 0), 'alice'); // Mismatch
+            
+            console.log('Alice made mismatch');
+            
+            // Verify alice has cleanup pending
+            let aliceState = board.getBoardState('alice');
+            let aliceLines = aliceState.split('\n');
+            assert(aliceLines[1]?.startsWith('up '), 'cards should be face-up but not controlled');
+            
+            // Bob controls a different card
+            await board.flipCard(new TestPosition(2, 0), 'bob');
+            console.log('Bob controls (2,0)');
+            
+            // Alice tries to flip bob's card as first card - should trigger cleanup first, THEN wait
+            console.log('Alice trying to flip bob card...');
+            const aliceFlipPromise = board.flipCard(new TestPosition(2, 0), 'alice');
+            
+            // Give time for alice's cleanup to happen
+            await new Promise(resolve => setTimeout(resolve, 100));
+            console.log('After 100ms wait');
+            
+            // Alice's cards from the mismatch should now be flipped down
+            aliceState = board.getBoardState('alice');
+            aliceLines = aliceState.split('\n');
+            console.log('Alice state:', aliceLines[1], aliceLines[4]);
+            
+            // Bob relinquishes by flipping alice's controlled position from earlier (now down)
+            // This will be Rule 2-E (mismatch) and bob relinquishes
+            console.log('Bob relinquishing...');
+            await board.flipCard(new TestPosition(0, 0), 'bob'); // Face-down card - Rule 2-E mismatch
+            
+            // Alice's flip should complete
+            console.log('Waiting for alice flip to complete...');
+            await aliceFlipPromise;
+            console.log('Alice flip completed');
+            
+            // Alice should now control (2,0)
+            aliceState = board.getBoardState('alice');
+            aliceLines = aliceState.split('\n');
+            assert(aliceLines[7]?.startsWith('my '), 'alice should control (2,0) after waiting');
+        });
     });
 
     describe('flipCard() - Rule 2: Second Card', function() {
@@ -429,9 +546,9 @@ describe('Board internal classes', function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
             // Create removed cards
-            board.flipCard(new TestPosition(0, 0), 'alice');
-            board.flipCard(new TestPosition(0, 1), 'alice'); // Match
-            board.flipCard(new TestPosition(1, 0), 'alice'); // Cleanup removes (0,0) and (0,1)
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(0, 1), 'alice'); // Match
+            await board.flipCard(new TestPosition(1, 0), 'alice'); // Cleanup removes (0,0) and (0,1)
             
             // Alice now controls (1,0)
             let state = board.getBoardState('alice');
@@ -439,7 +556,7 @@ describe('Board internal classes', function() {
             assert(lines[4]?.startsWith('my '), 'alice should control (1,0)');
             
             // Alice tries to flip removed position as second card - should fail and relinquish
-            board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(0, 0), 'alice');
             
             state = board.getBoardState('alice');
             lines = state.split('\n');
@@ -449,14 +566,14 @@ describe('Board internal classes', function() {
         it('covers Rule 2-B: card is controlled, fails and relinquishes, SAME PLAYER', async function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
-            board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(0, 0), 'alice');
             
             let state = board.getBoardState('alice');
             let lines = state.split('\n');
             assert(lines[1]?.startsWith('my '), 'alice should control (0,0)');
             
             // Try to flip same card as second card
-            board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(0, 0), 'alice');
             
             state = board.getBoardState('alice');
             lines = state.split('\n');
@@ -467,21 +584,21 @@ describe('Board internal classes', function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
             // Alice flips a card
-            board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(0, 0), 'alice');
             
             let state = board.getBoardState('alice');
             let lines = state.split('\n');
             assert(lines[1]?.startsWith('my '), 'alice should control (0,0)');
             
             // Bob flips his 1st card
-            board.flipCard(new TestPosition(0, 1), 'bob');
+            await board.flipCard(new TestPosition(0, 1), 'bob');
 
             let stateBob = board.getBoardState('bob');
             let linesBob = stateBob.split('\n');
             assert(linesBob[2]?.startsWith('my '), 'bob should control (0,1)');
 
             // Bob tries to flip alice's controlled card as second card
-            board.flipCard(new TestPosition(0, 0), 'bob');
+            await board.flipCard(new TestPosition(0, 0), 'bob');
 
             // Bob now does not control his 1st card
             let stateBob2 = board.getBoardState('bob');
@@ -493,8 +610,8 @@ describe('Board internal classes', function() {
         it('covers Rule 2-C/2-D: cards match, keep control of both', async function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
-            board.flipCard(new TestPosition(0, 0), 'alice');
-            board.flipCard(new TestPosition(0, 1), 'alice'); // Match
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(0, 1), 'alice'); // Match
             
             let state = board.getBoardState('alice');
             let lines = state.split('\n');
@@ -514,8 +631,8 @@ describe('Board internal classes', function() {
         it('covers Rule 2-C/2-E: cards dont match, relinquish both', async function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
-            board.flipCard(new TestPosition(0, 0), 'alice');
-            board.flipCard(new TestPosition(0, 2), 'alice'); // Don't match
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(0, 2), 'alice'); // Don't match
             
             const state = board.getBoardState('alice');
             const lines = state.split('\n');
@@ -532,8 +649,8 @@ describe('Board internal classes', function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
             // Alice flips matching pair
-            board.flipCard(new TestPosition(0, 0), 'alice');
-            board.flipCard(new TestPosition(0, 1), 'alice'); // Match
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(0, 1), 'alice'); // Match
             
             let state = board.getBoardState('alice');
             let lines = state.split('\n');
@@ -543,7 +660,7 @@ describe('Board internal classes', function() {
             assert(lines[2]?.startsWith('my '), 'cards should still exist before cleanup');
             
             // Alice starts new flip (triggers cleanup - Rule 3-A)
-            board.flipCard(new TestPosition(1, 0), 'alice');
+            await board.flipCard(new TestPosition(1, 0), 'alice');
             
             state = board.getBoardState('alice');
             lines = state.split('\n');
@@ -563,8 +680,8 @@ describe('Board internal classes', function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
             // Alice flips non-matching pair
-            board.flipCard(new TestPosition(0, 0), 'alice');
-            board.flipCard(new TestPosition(0, 2), 'alice'); // Don't match
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(0, 2), 'alice'); // Don't match
             
             let state = board.getBoardState('alice');
             let lines = state.split('\n');
@@ -574,7 +691,7 @@ describe('Board internal classes', function() {
             assert(lines[3]?.startsWith('up '), '(0,2) should be face-up');
             
             // Alice starts new flip (triggers cleanup - Rule 3-B)
-            board.flipCard(new TestPosition(1, 0), 'alice');
+            await board.flipCard(new TestPosition(1, 0), 'alice');
             
             state = board.getBoardState('alice');
             lines = state.split('\n');
@@ -588,20 +705,20 @@ describe('Board internal classes', function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
             // Alice flips non-matching cards
-            board.flipCard(new TestPosition(0, 0), 'alice');
-            board.flipCard(new TestPosition(0, 2), 'alice'); // Don't match
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(0, 2), 'alice'); // Don't match
 
             // Alice lost control of both cards, but they are still up
             
             // Bob takes control of alice's first card
-            board.flipCard(new TestPosition(0, 0), 'bob');
+            await board.flipCard(new TestPosition(0, 0), 'bob');
             
             let bobState = board.getBoardState('bob');
             let bobLines = bobState.split('\n');
             assert(bobLines[1]?.startsWith('my '), 'bob should control (0,0)');
             
             // Alice flips new first card - should flip down (0,1) but NOT (0,0) since bob controls it
-            board.flipCard(new TestPosition(1, 0), 'alice');
+            await board.flipCard(new TestPosition(1, 0), 'alice');
             
             const aliceState = board.getBoardState('alice');
             const aliceLines = aliceState.split('\n');
@@ -623,23 +740,23 @@ describe('Board internal classes', function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
             // Alice plays a complete sequence
-            board.flipCard(new TestPosition(0, 0), 'alice'); // First card
-            board.flipCard(new TestPosition(0, 1), 'alice'); // Second card, match
+            await board.flipCard(new TestPosition(0, 0), 'alice'); // First card
+            await board.flipCard(new TestPosition(0, 1), 'alice'); // Second card, match
             
             let state = board.getBoardState('alice');
             let lines = state.split('\n');
             assert(lines[1]?.startsWith('my '), 'alice controls first match');
             assert(lines[2]?.startsWith('my '), 'alice controls second match');
             
-            board.flipCard(new TestPosition(1, 0), 'alice'); // Cleanup + new first
+            await board.flipCard(new TestPosition(1, 0), 'alice'); // Cleanup + new first
             
             state = board.getBoardState('alice');
             lines = state.split('\n');
             assert.strictEqual(lines[1], 'none', 'first pair removed');
             assert.strictEqual(lines[2], 'none', 'first pair removed');
             
-            board.flipCard(new TestPosition(1, 1), 'alice'); // Second card, match
-            board.flipCard(new TestPosition(2, 0), 'alice'); // Cleanup + new first
+            await board.flipCard(new TestPosition(1, 1), 'alice'); // Second card, match
+            await board.flipCard(new TestPosition(2, 0), 'alice'); // Cleanup + new first
             
             state = board.getBoardState('alice');
             lines = state.split('\n');
@@ -650,14 +767,14 @@ describe('Board internal classes', function() {
         it('covers mismatches and cleanup cycles', async function() {
             const board = await Board.parseFromFile('boards/ab.txt');
             
-            board.flipCard(new TestPosition(0, 0), 'alice');
-            board.flipCard(new TestPosition(0, 1), 'alice'); // no match
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(0, 1), 'alice'); // no match
             
             let state = board.getBoardState('alice');
             let lines = state.split('\n');
             assert(lines[1]?.startsWith('up '), 'cards relinquished but face-up');
             
-            board.flipCard(new TestPosition(1, 0), 'alice'); // Cleanup, then flip
+            await board.flipCard(new TestPosition(1, 0), 'alice'); // Cleanup, then flip
             
             state = board.getBoardState('alice');
             lines = state.split('\n');
@@ -669,12 +786,12 @@ describe('Board internal classes', function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
             // Try to flip out of bounds
-            assert.throws(() => {
-                board.flipCard(new TestPosition(10, 10), 'alice');
+            await assert.rejects(async () => {
+                await board.flipCard(new TestPosition(10, 10), 'alice');
             }, Error, 'Should throw for out of bounds');
             
-            assert.throws(() => {
-                board.flipCard(new TestPosition(-1, 0), 'alice');
+            await assert.rejects(async () => {
+                await board.flipCard(new TestPosition(-1, 0), 'alice');
             }, Error, 'Should throw for negative position');
         });
     });

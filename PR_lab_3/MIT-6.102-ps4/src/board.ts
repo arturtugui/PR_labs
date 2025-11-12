@@ -6,6 +6,23 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 
 /**
+ * Deferred promise utility for async coordination.
+ * Allows storing a promise to be resolved later.
+ */
+class Deferred<T> {
+    public readonly promise: Promise<T>;
+    public resolve!: (value: T) => void;
+    public reject!: (reason?: unknown) => void;
+
+    constructor() {
+        this.promise = new Promise<T>((resolve, reject) => {
+            this.resolve = resolve;
+            this.reject = reject;
+        });
+    }
+}
+
+/**
  * Represents a mutable game board for Memory Scramble.
  * 
  * The board is a rectangular grid of cards. Players can flip cards to reveal their content,
@@ -20,6 +37,7 @@ export class Board {
     private readonly cols : number;
     private readonly cards : (Card | undefined)[][];
     private readonly playerStates: Map<string, PlayerState>;
+    private readonly waitQueues: Map<string, Deferred<void>[]>; // Map from position key to waiting promises
 
     // Abstraction function:
     //   AF(rows, cols, cards, playerStates) = a Memory Scramble game board with dimensions
@@ -55,6 +73,7 @@ export class Board {
         this.cols = cols;
         this.cards = cards;
         this.playerStates = new Map<string, PlayerState>();
+        this.waitQueues = new Map<string, Deferred<void>[]>();
         this.checkRep();
     }
 
@@ -188,7 +207,7 @@ export class Board {
      * @param playerId the ID of the player flipping the card
      * @returns a description of what happened during the flip
      */
-    public flipCardWithLogging(position: Position, playerId: string): string {
+    public async flipCardWithLogging(position: Position, playerId: string): Promise<string> {
         // Validate bounds first
         if (position.row < 0 || position.row >= this.rows || 
             position.col < 0 || position.col >= this.cols) {
@@ -208,7 +227,7 @@ export class Board {
         const hadCleanup = state.toCleanUp.length;
         
         try {
-            this.flipCard(position, playerId);
+            await this.flipCard(position, playerId);
             
             const nowControlling = state.controlled.length;
             const nowCleanup = state.toCleanUp.length;
@@ -231,6 +250,13 @@ export class Board {
                 
                 if (nowControlling === 1) {
                     return `Rule 1-B/C: Card ${cardContent} controlled`;
+                }
+                
+                if (nowControlling === 0 && nowCleanup === 0 && hadCleanup === 0) {
+                    // This can happen after waiting: tried to flip, waited, card became available 
+                    // but got taken by someone else, so we waited again multiple times, eventually
+                    // card was removed or some other condition caused us to not get it
+                    return `Rule 1-D: Waited for card but it became unavailable`;
                 }
                 
                 // Unexpected state
@@ -293,7 +319,7 @@ export class Board {
     }
 
     // Game logic methods (flip, look, etc.) would go here
-    public flipCard(position: Position, playerId: string): void {
+    public async flipCard(position: Position, playerId: string, retryingAfterWait: boolean = false): Promise<void> {
         // Validate position bounds
         if (position.row < 0 || position.row >= this.rows || 
             position.col < 0 || position.col >= this.cols) {
@@ -313,7 +339,8 @@ export class Board {
         // Check for cleanup first, regardless of controlled.length
         if (state.toCleanUp.length === 2 || state.controlled.length === 0) {
             // First, check if there are cards to clean up from previous play
-            if (state.toCleanUp.length === 2) {
+            // BUT: if we're retrying after a wait, skip cleanup (it was already done)
+            if (!retryingAfterWait && state.toCleanUp.length === 2) {
                 const firstPos = state.toCleanUp[0];
                 const secondPos = state.toCleanUp[1];
                 assert(firstPos !== undefined);
@@ -326,6 +353,10 @@ export class Board {
                 if (firstCard !== undefined && secondCard !== undefined && firstCard.matches(secondCard)) {
                     this.cards[firstPos.row]![firstPos.col] = undefined;
                     this.cards[secondPos.row]![secondPos.col] = undefined;
+                    
+                    // Notify anyone waiting on these positions that they're now available
+                    this.notifyWaiters(firstPos);
+                    this.notifyWaiters(secondPos);
                 } else {
                     // Rule 3-B: flip down unmatched cards if still face-up and uncontrolled
                     if (firstCard !== undefined && firstCard.faceUp && !this.isCardControlled(firstPos)) {
@@ -339,6 +370,10 @@ export class Board {
                 // Clear cleanup list AND controlled (in case of matched pair that stayed controlled)
                 state.toCleanUp = [];
                 state.controlled = [];
+                
+                // Notify waiters after relinquishing control
+                this.notifyWaiters(firstPos);
+                this.notifyWaiters(secondPos);
             }
             
             // Now process the new first card flip
@@ -367,8 +402,10 @@ export class Board {
             }
 
             // Rule 1-D: controlled by another player → wait
-            // TODO (Problem 3): implement waiting with promises
-            throw new Error('Card is controlled by another player (waiting not yet implemented)');
+            await this.waitForCard(position);
+            // After waiting, recursively try to flip again
+            // Pass true to skip cleanup logic (cleanup was already done before waiting)
+            return this.flipCard(position, playerId, true);
         }
 
         // CASE 2: Second card flip (player controls 1 card)
@@ -381,6 +418,7 @@ export class Board {
             // Rule 2-A: no card there → operation fails, relinquish first card
             if (card === undefined) {
                 state.controlled = []; // Relinquish control
+                this.notifyWaiters(firstPos); // Notify waiters
                 this.checkRep();
                 return;
             }
@@ -388,6 +426,7 @@ export class Board {
             // Rule 2-B: card is controlled (by anyone, including self) → fail, relinquish
             if (this.isCardControlled(position)) {
                 state.controlled = []; // Relinquish control
+                this.notifyWaiters(firstPos); // Notify waiters
                 this.checkRep();
                 return;
             }
@@ -417,11 +456,55 @@ export class Board {
             const secondPos = position;
             state.toCleanUp = [firstPos, secondPos];
             state.controlled = [];
+            // Notify waiters since we relinquished both cards
+            this.notifyWaiters(firstPos);
+            this.notifyWaiters(secondPos);
             this.checkRep();
             return;
         }
 
         this.checkRep();
+    }
+
+    /**
+     * Convert a position to a string key for map lookups.
+     */
+    private positionKey(position: Position): string {
+        return `${position.row},${position.col}`;
+    }
+
+    /**
+     * Wait for a card to become available (not controlled by anyone).
+     * Returns a promise that resolves when the card is released.
+     */
+    private async waitForCard(position: Position): Promise<void> {
+        const key = this.positionKey(position);
+        const deferred = new Deferred<void>();
+        
+        // Add this deferred to the wait queue for this position
+        const queue = this.waitQueues.get(key) ?? [];
+        queue.push(deferred);
+        this.waitQueues.set(key, queue);
+        
+        // Wait for the promise to be resolved
+        await deferred.promise;
+    }
+
+    /**
+     * Notify all players waiting on a specific position that it's now available.
+     */
+    private notifyWaiters(position: Position): void {
+        const key = this.positionKey(position);
+        const queue = this.waitQueues.get(key);
+        
+        if (queue && queue.length > 0) {
+            // Resolve all waiting promises
+            for (const deferred of queue) {
+                deferred.resolve();
+            }
+            // Clear the queue
+            this.waitQueues.delete(key);
+        }
     }
 
     /**
