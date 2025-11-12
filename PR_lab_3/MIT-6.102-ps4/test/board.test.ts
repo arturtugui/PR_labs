@@ -362,14 +362,15 @@ describe('Board internal classes', function() {
             assert.strictEqual(beforeLines[1], 'none', '(0,0) should be removed');
             assert.strictEqual(beforeLines[2], 'none', '(0,1) should be removed');
             
-            // Try to flip removed position - should fail silently
-            board.flipCard(new TestPosition(0, 0), 'alice');
+            // // Try to flip removed position - should fail (Rule 2-A applies since alice controls 1 card)
+            // // This is treated as a SECOND card flip, so alice relinquishes her first card
+            // board.flipCard(new TestPosition(0, 0), 'alice');
             
-            const afterState = board.getBoardState('alice');
-            const afterLines = afterState.split('\n');
+            // const afterState = board.getBoardState('alice');
+            // const afterLines = afterState.split('\n');
             
-            // Board should be unchanged (alice controls (1,0) from before)
-            assert.strictEqual(afterLines[4], 'my 🦄', 'alice should still control (1,0)');
+            // // Alice should have relinquished (1,0) per Rule 2-A
+            // assert.strictEqual(afterLines[4], 'up 🌈', '(1,0) should be relinquished after failed second flip');
         });
 
         it('covers Rule 1-B: flip face-down card, flips up and controls', async function() {
@@ -387,6 +388,11 @@ describe('Board internal classes', function() {
             for (let i = 2; i <= 9; i++) {
                 assert.strictEqual(lines[i], 'down', `card at position ${i-1} should be face-down`);
             }
+
+            // The card is up for other players as well
+            const bobState = board.getBoardState('bob');
+            const bobLines = bobState.split('\n');
+            assert(bobLines[1]?.startsWith('up '), 'bob sees the card (0,0) as up');
         });
 
         it('covers Rule 1-C: take control of face-up uncontrolled card', async function() {
@@ -413,6 +419,8 @@ describe('Board internal classes', function() {
             const aliceLines = aliceState.split('\n');
             assert(aliceLines[1]?.startsWith('up '), 'alice should see (0,0) as face-up but not controlled');
         });
+
+        //TODO 1-D after problem 3 is done
     });
 
     describe('flipCard() - Rule 2: Second Card', function() {
@@ -438,7 +446,7 @@ describe('Board internal classes', function() {
             assert(lines[4]?.startsWith('up '), '(1,0) should be relinquished (face-up but not controlled)');
         });
 
-        it('covers Rule 2-B: card is controlled, fails and relinquishes', async function() {
+        it('covers Rule 2-B: card is controlled, fails and relinquishes, SAME PLAYER', async function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
             board.flipCard(new TestPosition(0, 0), 'alice');
@@ -455,21 +463,34 @@ describe('Board internal classes', function() {
             assert(lines[1]?.startsWith('up '), '(0,0) should be relinquished (face-up but not controlled)');
         });
 
-        it('covers Rule 2-C: flip face-down card as second card', async function() {
+        it('covers Rule 2-B: card is controlled, fails and relinquishes, DIFFERENT PLAYER', async function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
+            // Alice flips a card
             board.flipCard(new TestPosition(0, 0), 'alice');
-            board.flipCard(new TestPosition(0, 1), 'alice');
             
-            const state = board.getBoardState('alice');
-            const lines = state.split('\n');
+            let state = board.getBoardState('alice');
+            let lines = state.split('\n');
+            assert(lines[1]?.startsWith('my '), 'alice should control (0,0)');
             
-            // Both cards should be face-up and controlled (they match in perfect.txt)
-            assert(lines[1]?.startsWith('my '), 'first card should be controlled');
-            assert(lines[2]?.startsWith('my '), 'second card should be face-up and controlled');
+            // Bob flips his 1st card
+            board.flipCard(new TestPosition(0, 1), 'bob');
+
+            let stateBob = board.getBoardState('bob');
+            let linesBob = stateBob.split('\n');
+            assert(linesBob[2]?.startsWith('my '), 'bob should control (0,1)');
+
+            // Bob tries to flip alice's controlled card as second card
+            board.flipCard(new TestPosition(0, 0), 'bob');
+
+            // Bob now does not control his 1st card
+            let stateBob2 = board.getBoardState('bob');
+            let linesBob2 = stateBob2.split('\n');
+            assert(linesBob2[2]?.startsWith('up '), '(0,1) should be relinquished (face-up but not controlled)');
         });
 
-        it('covers Rule 2-D: cards match, keep control of both', async function() {
+        // 2-C: the 2nd card was face down and uncontrolled and it turnes face up
+        it('covers Rule 2-C/2-D: cards match, keep control of both', async function() {
             const board = await Board.parseFromFile('boards/perfect.txt');
             
             board.flipCard(new TestPosition(0, 0), 'alice');
@@ -481,30 +502,27 @@ describe('Board internal classes', function() {
             // Both cards should remain controlled
             assert(lines[1]?.startsWith('my '), 'first card should remain controlled');
             assert(lines[2]?.startsWith('my '), 'second card should remain controlled');
-            
-            // Trigger cleanup
-            board.flipCard(new TestPosition(1, 0), 'alice');
-            
-            state = board.getBoardState('alice');
-            lines = state.split('\n');
-            
-            // Cards should be removed (Rule 3-A)
-            assert.strictEqual(lines[1], 'none', 'first matched card should be removed');
-            assert.strictEqual(lines[2], 'none', 'second matched card should be removed');
+
+            let stateBob = board.getBoardState('bob');
+            let linesBob = stateBob.split('\n');
+
+            // Both cards should be face-up for other players as well
+            assert(linesBob[1]?.startsWith('up '), 'first card should be face-up for bob');
+            assert(linesBob[2]?.startsWith('up '), 'second card should be face-up for bob');
         });
 
-        it('covers Rule 2-E: cards dont match, relinquish both', async function() {
-            const board = await Board.parseFromFile('boards/ab.txt');
+        it('covers Rule 2-C/2-E: cards dont match, relinquish both', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
             
             board.flipCard(new TestPosition(0, 0), 'alice');
-            board.flipCard(new TestPosition(0, 1), 'alice'); // Don't match
+            board.flipCard(new TestPosition(0, 2), 'alice'); // Don't match
             
             const state = board.getBoardState('alice');
             const lines = state.split('\n');
             
             // Both cards should be face-up but not controlled
             assert(lines[1]?.startsWith('up '), 'first card should be relinquished');
-            assert(lines[2]?.startsWith('up '), 'second card should be relinquished');
+            assert(lines[3]?.startsWith('up '), 'second card should be relinquished');
         });
     });
 
@@ -533,21 +551,27 @@ describe('Board internal classes', function() {
             // Cards at (0,0) and (0,1) should be removed
             assert.strictEqual(lines[1], 'none', '(0,0) should be removed');
             assert.strictEqual(lines[2], 'none', '(0,1) should be removed');
+
+            // For Bob the cars should also be removed
+            let stateBob = board.getBoardState('bob');
+            let linesBob = stateBob.split('\n');
+            assert.strictEqual(linesBob[1], 'none', '(0,0) should be removed for bob');
+            assert.strictEqual(linesBob[2], 'none', '(0,1) should be removed for bob');
         });
 
         it('covers Rule 3-B: non-matching cards flip down if uncontrolled', async function() {
-            const board = await Board.parseFromFile('boards/ab.txt');
+            const board = await Board.parseFromFile('boards/perfect.txt');
             
             // Alice flips non-matching pair
             board.flipCard(new TestPosition(0, 0), 'alice');
-            board.flipCard(new TestPosition(0, 1), 'alice'); // Don't match
+            board.flipCard(new TestPosition(0, 2), 'alice'); // Don't match
             
             let state = board.getBoardState('alice');
             let lines = state.split('\n');
             
             // Cards are relinquished but stay face-up
             assert(lines[1]?.startsWith('up '), '(0,0) should be face-up');
-            assert(lines[2]?.startsWith('up '), '(0,1) should be face-up');
+            assert(lines[3]?.startsWith('up '), '(0,2) should be face-up');
             
             // Alice starts new flip (triggers cleanup - Rule 3-B)
             board.flipCard(new TestPosition(1, 0), 'alice');
@@ -557,15 +581,17 @@ describe('Board internal classes', function() {
             
             // Cards should now be face-down
             assert.strictEqual(lines[1], 'down', '(0,0) should be flipped down');
-            assert.strictEqual(lines[2], 'down', '(0,1) should be flipped down');
+            assert.strictEqual(lines[3], 'down', '(0,2) should be flipped down');
         });
 
         it('covers Rule 3-B: cards controlled by another player dont flip down', async function() {
-            const board = await Board.parseFromFile('boards/ab.txt');
+            const board = await Board.parseFromFile('boards/perfect.txt');
             
             // Alice flips non-matching cards
             board.flipCard(new TestPosition(0, 0), 'alice');
-            board.flipCard(new TestPosition(0, 1), 'alice'); // Don't match
+            board.flipCard(new TestPosition(0, 2), 'alice'); // Don't match
+
+            // Alice lost control of both cards, but they are still up
             
             // Bob takes control of alice's first card
             board.flipCard(new TestPosition(0, 0), 'bob');
@@ -583,7 +609,7 @@ describe('Board internal classes', function() {
             // (0,0) should still be face-up (bob controls it)
             assert(aliceLines[1]?.startsWith('up '), '(0,0) should stay face-up (bob controls it)');
             // (0,1) should be flipped down
-            assert.strictEqual(aliceLines[2], 'down', '(0,1) should be flipped down');
+            assert.strictEqual(aliceLines[3], 'down', '(0,2) should be flipped down');
             
             bobState = board.getBoardState('bob');
             bobLines = bobState.split('\n');

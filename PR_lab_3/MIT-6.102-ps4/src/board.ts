@@ -298,8 +298,9 @@ export class Board {
             this.playerStates.set(playerId, state);
         }
 
-        // CASE 1: First card flip (player controls 0 cards)
-        if (state.controlled.length === 0) {
+        // CASE 1: First card flip (player controls 0 cards OR has cards to clean up)
+        // Check for cleanup first, regardless of controlled.length
+        if (state.toCleanUp.length === 2 || state.controlled.length === 0) {
             // First, check if there are cards to clean up from previous play
             if (state.toCleanUp.length === 2) {
                 const firstPos = state.toCleanUp[0];
@@ -324,8 +325,9 @@ export class Board {
                     }
                 }
                 
-                // Clear cleanup list
+                // Clear cleanup list AND controlled (in case of matched pair that stayed controlled)
                 state.toCleanUp = [];
+                state.controlled = [];
             }
             
             // Now process the new first card flip
@@ -391,9 +393,10 @@ export class Board {
 
             // Rule 2-D: if cards match → keep control of both, mark for cleanup
             if (card.matches(firstCard)) {
-                // Cards match - they'll be removed on next flip
+                // Cards match - mark for cleanup, but KEEP them in controlled
+                // They stay as "my" cards until cleanup removes them
                 state.toCleanUp = [firstPos, position];
-                state.controlled = []; // Relinquish control (cards stay face-up for now)
+                // DON'T clear controlled - cards remain controlled until cleanup
                 this.checkRep();
                 return;
             }
@@ -421,6 +424,8 @@ export class Board {
 
     private isCardControlled(position: Position): boolean {
         for (const state of this.playerStates.values()) {
+            // Only check controlled, not toCleanUp
+            // Cards in toCleanUp from mismatches should be available to other players
             if (state.controlled.some(p => p.equals(position))) {
                 return true;
             }
