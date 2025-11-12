@@ -19,7 +19,7 @@ async function simulationMain(): Promise<void> {
     const size = 3;
     const players = 5; // Increased to test concurrency
     const tries = 10;
-    const maxDelayMilliseconds = 10;
+    const maxDelayMilliseconds = 100;
 
     console.log(`Starting simulation with ${players} player(s) on a ${size}x${size} board`);
     console.log(`Each player will attempt ${tries} flips`);
@@ -55,35 +55,67 @@ async function simulationMain(): Promise<void> {
             const firstCol = randomInt(size);
             const firstPosition = new TestPosition(firstRow, firstCol);
             
-            console.log(`\n${playerId} - Turn ${jj + 1}:`);
-            console.log(`  FIRST card at (${firstRow}, ${firstCol})`);
+            //console.log(`\n[${playerId}] Turn ${jj + 1}:`);
+            console.log(`  [${playerId}] FIRST card at (${firstRow}, ${firstCol})`);
             
             const firstResult = await board.flipCardWithLogging(firstPosition, playerId);
-            console.log(`    -> ${firstResult}`);
+            console.log(`  [${playerId}]   ➜ ${firstResult}`);
             
             if (firstResult.includes('Rule 1-A') || firstResult.includes('failed')) {
                 failedFirstFlips++;
+                console.log(`  [${playerId}] Turn ended (first flip failed)`);
                 continue; // Don't try second card if first fails
             }
 
             await timeout(Math.random() * maxDelayMilliseconds);
             
-            // Try to flip over a second card at a random position
-            const secondRow = randomInt(size);
-            const secondCol = randomInt(size);
-            const secondPosition = new TestPosition(secondRow, secondCol);
+            // Loop for second card attempts (may retry if card is controlled)
+            let attempts = 0;
+            const maxAttempts = 5; // Prevent infinite loops
             
-            console.log(`  SECOND card at (${secondRow}, ${secondCol})`);
-            
-            const secondResult = await board.flipCardWithLogging(secondPosition, playerId);
-            console.log(`    -> ${secondResult}`);
-            
-            if (secondResult.includes('Rule 2-D')) {
-                matchCount++;
-            } else if (secondResult.includes('Rule 2-E')) {
-                mismatchCount++;
-            } else if (secondResult.includes('Rule 2-A') || secondResult.includes('Rule 2-B')) {
-                failedSecondFlips++;
+            while (attempts < maxAttempts) {
+                attempts++;
+                
+                // Try to flip over a second card at a random position
+                const secondRow = randomInt(size);
+                const secondCol = randomInt(size);
+                const secondPosition = new TestPosition(secondRow, secondCol);
+                
+                console.log(`  [${playerId}] SECOND card at (${secondRow}, ${secondCol}) [attempt ${attempts}]`);
+                
+                const secondResult = await board.flipCardWithLogging(secondPosition, playerId);
+                console.log(`  [${playerId}]   ➜ ${secondResult}`);
+                
+                if (secondResult.includes('Rule 2-D')) {
+                    matchCount++;
+                    console.log(`  [${playerId}] Turn ended (MATCH!)`);
+                    break;
+                } else if (secondResult.includes('Rule 2-E')) {
+                    mismatchCount++;
+                    console.log(`  [${playerId}] Turn ended (no match)`);
+                    break;
+                } else if (secondResult.includes('Rule 2-A') || secondResult.includes('Rule 2-B')) {
+                    // Failed second flip - try again with a different random position
+                    failedSecondFlips++;
+                    if (attempts >= maxAttempts) {
+                        console.log(`  [${playerId}] Turn ended (too many failed attempts)`);
+                    }
+                    // Continue loop to try another position
+                } else if (secondResult.includes('Rule 1-A') || secondResult.includes('Rule 1-B/C')) {
+                    // Cleanup happened during second flip, then processed as first card
+                    // This means the player now controls a card (or tried to flip empty spot)
+                    // Either way, the "turn" is effectively complete
+                    console.log(`  [${playerId}] Turn ended (cleanup triggered, now has first card)`);
+                    break;
+                } else if (secondResult.includes('Rule 3-A')) {
+                    // Cleanup happened and removed cards
+                    console.log(`  [${playerId}] Turn ended (cleanup completed)`);
+                    break;
+                } else {
+                    // Truly unexpected result
+                    console.log(`  [${playerId}] Turn ended (unexpected: ${secondResult.substring(0, 30)})`);
+                    break;
+                }
             }
         }
         

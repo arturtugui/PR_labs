@@ -360,10 +360,10 @@ export class Board {
                 } else {
                     // Rule 3-B: flip down unmatched cards if still face-up and uncontrolled
                     if (firstCard !== undefined && firstCard.faceUp && !this.isCardControlled(firstPos)) {
-                        firstCard.faceUp = false;
+                        this.flipCardDown(firstCard, firstPos);
                     }
                     if (secondCard !== undefined && secondCard.faceUp && !this.isCardControlled(secondPos)) {
-                        secondCard.faceUp = false;
+                        this.flipCardDown(secondCard, secondPos);
                     }
                 }
                 
@@ -387,7 +387,7 @@ export class Board {
 
             // Rule 1-B: card is face down → flip it up and control it
             if (!currentCard.faceUp) {
-                currentCard.faceUp = true;
+                this.flipCardUp(currentCard, position);
                 state.controlled.push(position);
                 this.checkRep();
                 return;
@@ -435,7 +435,7 @@ export class Board {
             
             // Rule 2-C: if face down, flip it up
             if (!card.faceUp) {
-                card.faceUp = true;
+                this.flipCardUp(card, position);
             }
 
             // Rule 2-D: if cards match → keep control of both, mark for cleanup
@@ -526,6 +526,40 @@ export class Board {
             }
         }
         return false;
+    }
+
+    /**
+     * Flip a card face up. Validates that the card exists and is currently face down.
+     * 
+     * @param card the card to flip face up
+     * @param position the position of the card (for error messages)
+     * @throws Error if card is already face up (indicates a bug in game logic)
+     */
+    private flipCardUp(card: Card, position: Position): void {
+        if (card.faceUp) {
+            throw new Error(`Bug: Attempted to flip face-up card at ${position.toString()} face up again`);
+        }
+        card.faceUp = true;
+    }
+
+    /**
+     * Flip a card face down. Validates that the card exists and is currently face up.
+     * Also checks that the card is not controlled by any player (controlled cards should never be flipped down).
+     * 
+     * @param card the card to flip face down
+     * @param position the position of the card (for error messages)
+     * @throws Error if card is already face down or is controlled (indicates a bug in game logic)
+     */
+    private flipCardDown(card: Card, position: Position): void {
+        if (!card.faceUp) {
+            throw new Error(`Bug: Attempted to flip face-down card at ${position.toString()} face down again`);
+        }
+        
+        if (this.isCardControlled(position)) {
+            throw new Error(`Bug: Attempted to flip down controlled card at ${position.toString()}`);
+        }
+        
+        card.faceUp = false;
     }
 
     /**

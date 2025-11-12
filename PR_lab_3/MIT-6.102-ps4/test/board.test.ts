@@ -795,4 +795,128 @@ describe('Board internal classes', function() {
             }, Error, 'Should throw for negative position');
         });
     });
+
+    describe('Card State Validation', function() {
+        
+        it('validates cards are flipped correctly during game flow', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Flip a card face up (Rule 1-B)
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            
+            // Verify it's face up
+            let state = board.getBoardState('alice');
+            let lines = state.split('\n');
+            assert(lines[1]?.startsWith('my '), 'card should be face-up and controlled');
+            
+            // Make a mismatch - cards go to toCleanUp but stay face-up
+            await board.flipCard(new TestPosition(1, 0), 'alice');
+            
+            state = board.getBoardState('alice');
+            lines = state.split('\n');
+            assert(lines[1]?.startsWith('up '), '(0,0) should be face-up but not controlled');
+            assert(lines[4]?.startsWith('up '), '(1,0) should be face-up but not controlled');
+            
+            // Next flip triggers cleanup - cards flip down (Rule 3-B)
+            await board.flipCard(new TestPosition(2, 0), 'alice');
+            
+            state = board.getBoardState('alice');
+            lines = state.split('\n');
+            assert.strictEqual(lines[1], 'down', '(0,0) should be flipped down after cleanup');
+            assert.strictEqual(lines[4], 'down', '(1,0) should be flipped down after cleanup');
+            
+            // Internal validation ensures we never:
+            // - Flip face-up card up again
+            // - Flip face-down card down again  
+            // - Flip controlled cards down
+            // These are caught by the flipCardUp/flipCardDown helper methods
+        });
+
+        it('prevents flipping controlled cards down during cleanup', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Alice makes a mismatch
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            await board.flipCard(new TestPosition(1, 0), 'alice');
+            
+            // Bob takes control of one of alice's cards (Rule 1-C)
+            await board.flipCard(new TestPosition(0, 0), 'bob');
+            
+            // Alice's next flip triggers cleanup
+            // (0,0) should NOT flip down because bob controls it (Rule 3-B check)
+            await board.flipCard(new TestPosition(2, 0), 'alice');
+            
+            // Verify bob still controls (0,0) and it's face-up
+            const bobState = board.getBoardState('bob');
+            const bobLines = bobState.split('\n');
+            assert(bobLines[1]?.startsWith('my '), 'bob should still control (0,0)');
+            
+            // (1,0) should be flipped down (not controlled)
+            const aliceState = board.getBoardState('alice');
+            const aliceLines = aliceState.split('\n');
+            assert.strictEqual(aliceLines[4], 'down', '(1,0) should be flipped down');
+        });
+
+        it('handles waiting for card that gets matched and removed', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Alice flips first card at (0, 0) - gets control
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            
+            // Bob tries to flip same card (0, 0) as his first card
+            // This will wait because alice controls it (Rule 1-D)
+            const bobPromise = board.flipCard(new TestPosition(0, 0), 'bob');
+            
+            // Give bob's promise time to start waiting
+            await new Promise(resolve => setTimeout(resolve, 10));
+            
+            // Alice makes a match with (0, 0) and removes it
+            await board.flipCard(new TestPosition(1, 2), 'alice'); // Find matching card
+            
+            // Alice's next flip triggers cleanup - removes the matched pair (Rule 3-A)
+            await board.flipCard(new TestPosition(2, 0), 'alice');
+            
+            // Bob's wait should now resolve, but card is gone
+            // IMPORTANT: Wait for bob's promise to fully resolve before continuing
+            await bobPromise;
+            
+            // Verify bob doesn't control anything (card was removed)
+            const bobState = board.getBoardState('bob');
+            const bobLines = bobState.split('\n');
+            assert(!bobLines[1]?.startsWith('my '), 'bob should not control removed card');
+            
+            // Position (0, 0) should be empty now
+            assert.strictEqual(bobLines[1], 'none', 'position (0,0) should be empty');
+        });
+
+        it('handles second card not waiting when card is controlled', async function() {
+            const board = await Board.parseFromFile('boards/perfect.txt');
+            
+            // Alice gets control of first card
+            await board.flipCard(new TestPosition(0, 0), 'alice');
+            
+            // Bob gets control of another card
+            await board.flipCard(new TestPosition(1, 0), 'bob');
+            
+            // Alice tries to flip bob's controlled card as her second card
+            // Rule 2-B: Should fail immediately without waiting
+            const startTime = Date.now();
+            await board.flipCard(new TestPosition(1, 0), 'alice');
+            const elapsedTime = Date.now() - startTime;
+            
+            // Should complete very quickly (not wait)
+            assert(elapsedTime < 100, 'second card flip should not wait when card is controlled');
+            
+            // Verify alice relinquished control of first card (Rule 2-B)
+            const aliceState = board.getBoardState('alice');
+            const aliceLines = aliceState.split('\n');
+            assert(!aliceLines[1]?.startsWith('my '), 'alice should have relinquished first card');
+            
+            // Bob should still control his card
+            const bobState = board.getBoardState('bob');
+            const bobLines = bobState.split('\n');
+            assert(bobLines[4]?.startsWith('my '), 'bob should still control (1,0)');
+        });
+    });
 });
+
