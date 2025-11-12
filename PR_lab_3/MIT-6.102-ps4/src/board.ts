@@ -617,6 +617,23 @@ export class Board {
         return lines.join('\n');
     }
 
+    /**
+     * Get all card contents including face-down cards (for debugging/visualization)
+     * @returns 2D array of card contents, undefined for empty positions
+     */
+    public getAllCardContents(): (string | undefined)[][] {
+        const contents: (string | undefined)[][] = [];
+        for (let row = 0; row < this.rows; row++) {
+            const rowContents: (string | undefined)[] = [];
+            for (let col = 0; col < this.cols; col++) {
+                const card = this.cards[row]?.[col];
+                rowContents.push(card?.content);
+            }
+            contents.push(rowContents);
+        }
+        return contents;
+    }
+
     public doesPlayerExist(playerId: string): boolean {
         return this.playerStates.has(playerId);
     }

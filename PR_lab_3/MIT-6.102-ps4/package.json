@@ -9,6 +9,7 @@
     "compile": "tsc",
     "start": "tsc && node --require source-map-support/register dist/src/server.js",
     "simulation": "tsc && node --require source-map-support/register dist/src/simulation.js",
+    "simulation-map": "tsc && node --require source-map-support/register dist/src/simulation-map.js",
     "lint": "tsc && eslint",
     "test": "tsc || exit ; eslint ; mocha --require source-map-support/register dist/test",
     "coverage": "c8 npm test"
