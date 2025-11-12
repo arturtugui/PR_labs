@@ -68,8 +68,8 @@ MIT-6.102-ps4/
 ### 3.1 Dockerfile:
 
 ```dockerfile
-# Use Node.js 20 LTS as base image
-FROM node:20-slim
+# Use Node.js 22 as base image (required for Promise.withResolvers)
+FROM node:22-slim
 
 # Set working directory inside container
 WORKDIR /app
