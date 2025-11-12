@@ -151,8 +151,6 @@ Setup:
 
 **(`ENABLE_RATE_LIMITING = False`):**
 
-**(`ENABLE_PROCESSING_DELAY = False`):**
-
 - Expected count: 50
 - Actual count: < 50
 
@@ -170,8 +168,6 @@ Setup:
 
 **(`ENABLE_RATE_LIMITING = False`):**
 
-**(`ENABLE_PROCESSING_DELAY = False`):**
-
 - Expected count: 50
 - Actual count: 50
 
@@ -187,29 +183,14 @@ Setup:
 
 **Configuration:** 5 requests/second limit, 1-second window
 
-**Spammer Test (10 requests as fast as possible):**
+Setup:
 
-- Successful: 5 (200 OK)
-- Blocked: 5 (429 Too Many Requests)
-- Rate limited correctly ✅
+**(`ENABLE_COUNTER_LOCKS = True`):**
 
-**Normal User Test (10 requests at 4/second):**
+**(`ENABLE_RATE_LIMITING = True`):**
 
-- Successful: 10 (200 OK)
-- Blocked: 0
-- Below limit, all pass ✅
+**(`ENABLE_PROCESSING_DELAY = False`):**
 
-**Throughput Comparison:**
+**Results:**
 
-- Spammer: ~4.88 requests/sec (capped by limit)
-- Normal: ~0.81 requests/sec (natural rate)
-
-### 4.4 Browser Testing
-
-**Directory Listing with Hit Counter:**
-
-Access: `http://localhost:8080/`
-
-Shows files with hit counts displayed in table format
-
----
+![image](lab_report_images/throughput.png)

@@ -1,0 +1,15 @@
+services:
+  memory-scramble:
+    build: .
+    container_name: pr_lab3_memory_scramble
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount boards directory for easy board updates
+      - ./boards:/app/boards:ro
+      # Mount public directory for UI updates
+      - ./public:/app/public:ro
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    command: ["node", "dist/src/server.js", "8080", "boards/perfect.txt"]

@@ -42,7 +42,7 @@ def make_http_request(request_number):
         print(f"Request #{request_number} failed: {e}")
         return 0
 
-def spam_test(num_requests=20):
+def spam_test(num_requests=10):
     """
     SPAM TEST: Send many requests as fast as possible (above rate limit)
     Expected: First 5 succeed (200), rest get blocked (429)
@@ -80,7 +80,7 @@ def spam_test(num_requests=20):
     
     return success_count, blocked_count, total_time
 
-def normal_test(num_requests=20, requests_per_second=4):
+def normal_test(num_requests=10, requests_per_second=4):
     """
     NORMAL TEST: Send requests at controlled rate (below limit)
     Expected: All requests succeed (200 OK)

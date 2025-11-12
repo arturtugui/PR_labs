@@ -14,7 +14,7 @@ TEMPLATES_DIR = os.path.join(SCRIPT_DIR, 'templates')
 # ===================================================================
 # Set to False to show race condition (naive implementation)
 # Set to True to use locks (thread-safe implementation)
-ENABLE_COUNTER_LOCKS = True  # Change to False to demonstrate race condition
+ENABLE_COUNTER_LOCKS = True # Change to False to demonstrate race condition
 # ===================================================================
 
 # ===================================================================
