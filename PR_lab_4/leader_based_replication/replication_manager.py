@@ -1,9 +1,7 @@
 import os
-import time
+import asyncio
 import random
-import requests
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import httpx
 
 # ---------------------------------------------------------
 # Semi-synchronous replication with write quorum:
@@ -11,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # - Each follower applies updates only if the sequence number is newer.
 # - The leader waits for a configurable "write quorum" of confirmations before
 #   reporting success, ensuring that at least quorum followers are consistent.
-# - Local locks prevent race conditions within a node.
+# - Async/await enables true task cancellation after quorum is reached.
 # - Followers not in the quorum may lag temporarily, achieving eventual consistency.
 # ---------------------------------------------------------
 class ReplicationManager:
@@ -43,37 +41,56 @@ class ReplicationManager:
     #   False → quorum not reached within timeout
     #
     # Notes:
-    #   - Each follower is contacted in its own thread.
+    #   - Each follower is contacted in its own async task.
     #   - Network lag is simulated per follower to test concurrency.
-    #   - Confirms writes based on follower responses and write quorum.
-    #   - Busy waiting is replaced with futures and as_completed for efficiency.
+    #   - Tasks are cancelled immediately after quorum is reached.
+    #   - Async/await allows true mid-execution cancellation.
     # -----------------------------------------------------
-    def replicate_to_followers(self, key: str, value: str, seq: int) -> bool:
-        confirmations = 0  # Number of followers that acknowledged
-
-        # Shared lock ensures that concurrent threads safely update the shared counter.
-        # If the lock were local to each thread, race conditions would occur.
-        lock = threading.Lock()
+    async def replicate_to_followers(self, key: str, value: str, seq: int) -> bool:
+        confirmations = 0
+        tasks = []
+        
+        # Shared event to signal when quorum is reached
+        quorum_event = asyncio.Event()
 
         # -------------------------------------------------
-        # Inner function: replicate to a single follower
+        # Inner coroutine: replicate to a single follower
         # -------------------------------------------------
-        def replicate_to_one(follower_url: str) -> bool:
+        async def replicate_to_one(follower_url: str, client: httpx.AsyncClient) -> bool:
             try:
-                # Simulate random network lag
+                # Simulate random network lag - but check for cancellation every 100ms
                 delay_ms = random.randint(self.min_delay, self.max_delay)
-                time.sleep(delay_ms / 1000.0)
+                delay_seconds = delay_ms / 1000.0
+                
+                # Wait with timeout so we can be interrupted by quorum_event
+                try:
+                    await asyncio.wait_for(quorum_event.wait(), timeout=delay_seconds)
+                    # Quorum reached during delay - stop here
+                    print(f"Replication to {follower_url} stopped (quorum reached during delay)")
+                    return False
+                except asyncio.TimeoutError:
+                    # Delay completed, quorum not reached yet - proceed with request
+                    pass
+
+                # Check again before sending request
+                if quorum_event.is_set():
+                    print(f"Replication to {follower_url} skipped (quorum already reached)")
+                    return False
 
                 # Send POST request to follower /replicate endpoint
-                response = requests.post(
+                response = await client.post(
                     f"{follower_url}/replicate",
                     json={"key": key, "value": value, "seq": seq},
-                    timeout=2
+                    timeout=2.0
                 )
 
                 # Return True if follower confirms successfully
                 return response.status_code == 200 and response.json().get('ok', False)
 
+            except asyncio.CancelledError:
+                # Task was cancelled after quorum reached
+                print(f"Replication to {follower_url} cancelled (quorum already reached)")
+                raise
             except Exception as e:
                 # Log failures but continue; does not crash the leader
                 print(f"Replication to {follower_url} failed: {e}")
@@ -82,19 +99,41 @@ class ReplicationManager:
         # -------------------------------------------------
         # Execute replication concurrently to all followers
         # -------------------------------------------------
-        with ThreadPoolExecutor(max_workers=len(self.follower_urls)) as executor:
-            # Submit a task per follower
-            futures = [executor.submit(replicate_to_one, url) for url in self.follower_urls]
-            start_time = time.time()
+        async with httpx.AsyncClient() as client:
+            # Create tasks for all followers
+            tasks = [asyncio.create_task(replicate_to_one(url, client)) for url in self.follower_urls]
 
-            # Iterate over futures as they complete (efficient waiting)
-            for future in as_completed(futures, timeout=self.timeout / 1000.0):
-                if future.result():  # Increment only if follower confirmed
-                    with lock:
-                        confirmations += 1
-                        # Immediately return True if quorum is reached
-                        if confirmations >= self.write_quorum:
-                            return True
+            try:
+                # Wait for tasks to complete, checking after each one
+                for coro in asyncio.as_completed(tasks):
+                    try:
+                        result = await coro
+                        if result:
+                            confirmations += 1
+                            print(f"Confirmation received: {confirmations}/{self.write_quorum}")
+                            # Check if we've reached quorum
+                            if confirmations >= self.write_quorum:
+                                # Signal other tasks to stop
+                                quorum_event.set()
+                                # Wait briefly for other tasks to notice and stop
+                                await asyncio.sleep(0.1)
+                                # Cancel any remaining tasks
+                                for task in tasks:
+                                    if not task.done():
+                                        task.cancel()
+                                await asyncio.gather(*tasks, return_exceptions=True)
+                                return True
+                    except asyncio.CancelledError:
+                        # Expected for cancelled tasks
+                        pass
+                    except Exception as e:
+                        print(f"Task error: {e}")
 
-        # Final check if timeout occurs before quorum
+            except asyncio.TimeoutError:
+                # Timeout expired before quorum reached
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+
         return confirmations >= self.write_quorum

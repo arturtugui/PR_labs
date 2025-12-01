@@ -1,13 +1,41 @@
 import os
-from flask import Flask, request, jsonify
+from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel
 from kv_store import KVStore
 from replication_manager import ReplicationManager
+import uvicorn
 
 # ---------------------------------------------------------
-# Initialize Flask web application
-# Flask handles HTTP requests (REST API endpoints)
+# Initialize FastAPI web application
+# FastAPI handles HTTP requests (REST API endpoints)
 # ---------------------------------------------------------
-app = Flask(__name__)
+app = FastAPI()
+
+# ---------------------------------------------------------
+# Request/Response models for type validation
+# ---------------------------------------------------------
+class WriteRequest(BaseModel):
+    key: str
+    value: str
+
+class ReplicateRequest(BaseModel):
+    key: str
+    value: str
+    seq: int
+
+class WriteResponse(BaseModel):
+    ok: bool
+    seq: int = None
+    message: str
+
+class GetResponse(BaseModel):
+    key: str
+    value: str
+    seq: int
+
+class DumpResponse(BaseModel):
+    entries: dict
+    role: str
 
 # ---------------------------------------------------------
 # Initialize an in-memory key-value store
@@ -31,91 +59,87 @@ if role == 'leader':
     # Initialize replication manager for handling followers
     replication_manager = ReplicationManager()
 
-    @app.route('/write', methods=['POST'])
-    def write():
+    @app.post('/write', response_model=WriteResponse)
+    async def write(request: WriteRequest):
         """
         Client write endpoint (leader only)
         - Accepts JSON payload {"key": ..., "value": ...}
         - Stores value locally with an incremented sequence number
-        - Replicates the write to followers
+        - Replicates the write to followers asynchronously
         - Returns success only if write_quorum of followers confirmed
         """
-        data = request.json
-        key = data.get('key')
-        value = data.get('value')
-
-        if not key or value is None:
-            return jsonify({"ok": False, "message": "Missing key or value"}), 400
+        key = request.key
+        value = request.value
 
         seq = store.put_with_seq(key, value)
 
-        quorum_reached = replication_manager.replicate_to_followers(key, value, seq)
+        quorum_reached = await replication_manager.replicate_to_followers(key, value, seq)
 
         if quorum_reached:
-            return jsonify({"ok": True, "seq": seq, "message": "committed (quorum reached)"}), 200
+            return WriteResponse(ok=True, seq=seq, message="committed (quorum reached)")
         else:
-            return jsonify({"ok": False, "message": "quorum not reached"}), 500
+            raise HTTPException(status_code=500, detail="quorum not reached")
 
 # ---------------------------------------------------------
 # FOLLOWER-SPECIFIC ENDPOINTS
 # Only active if this node is a follower
 # ---------------------------------------------------------
 else:
-    @app.route('/replicate', methods=['POST'])
-    def replicate():
+    @app.post('/replicate')
+    async def replicate(request: ReplicateRequest):
         """
         Receive replication from leader
         - Accepts JSON payload {"key": ..., "value": ..., "seq": ...}
         - Applies the update only if the incoming sequence number
           is higher than the current one (avoids stale writes)
         """
-        data = request.json
-        key = data.get('key')
-        value = data.get('value')
-        seq = data.get('seq')
-
-        if not key or value is None or seq is None:
-            return jsonify({"ok": False}), 400
+        key = request.key
+        value = request.value
+        seq = request.seq
 
         store.replicate(key, value, seq)
 
-        return jsonify({"ok": True}), 200
+        return {"ok": True}
 
 # ---------------------------------------------------------
 # ENDPOINTS AVAILABLE FOR BOTH LEADER AND FOLLOWERS
 # ---------------------------------------------------------
-@app.route('/get', methods=['GET'])
-def get():
+@app.get('/get', response_model=GetResponse)
+async def get(key: str = Query(..., description="Key to retrieve")):
     """
     Read a key-value pair
     - Accepts query parameter 'key'
     - Returns the latest value and sequence number for that key
     """
-    key = request.args.get('key')
-    if not key:
-        return jsonify({"error": "Missing key parameter"}), 400
-
     record = store.get(key)
     if record:
-        return jsonify({"key": key, "value": record.value, "seq": record.seq}), 200
+        return GetResponse(key=key, value=record.value, seq=record.seq)
     else:
-        return jsonify({"error": "Key not found"}), 404
+        raise HTTPException(status_code=404, detail="Key not found")
 
-@app.route('/dump', methods=['GET'])
-def dump():
+@app.get('/dump', response_model=DumpResponse)
+async def dump():
     """
     Return the entire key-value store
     - Useful for testing, debugging, or verifying consistency
     """
-    return jsonify({"entries": store.dump(), "role": role}), 200
+    return DumpResponse(entries=store.dump(), role=role)
+
+@app.post('/reset')
+async def reset():
+    """
+    Clear the entire key-value store
+    - Used for testing to reset state between test runs
+    """
+    store.clear()
+    return {"ok": True, "message": "Store cleared"}
 
 # ---------------------------------------------------------
-# Run the Flask application
+# Run the FastAPI application with uvicorn
 # - Host 0.0.0.0 → accessible from outside Docker container
 # - Port is configurable via environment variable PORT
-# - threaded=True → allows multiple concurrent requests
 # ---------------------------------------------------------
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 8000))
     print(f"Starting {role} on port {port}")
-    app.run(host='0.0.0.0', port=port, threaded=True)
+    uvicorn.run(app, host='0.0.0.0', port=port)

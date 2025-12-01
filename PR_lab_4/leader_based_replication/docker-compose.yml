@@ -59,10 +59,10 @@ services:
     - ROLE=leader
     - PORT=8000
     - FOLLOWERS=http://follower1:8001,http://follower2:8002,http://follower3:8003,http://follower4:8004,http://follower5:8005
-    - MIN_DELAY_MS=50
-    - MAX_DELAY_MS=500
-    - WRITE_QUORUM=5
-    - REPLICATION_TIMEOUT_MS=250
+    - MIN_DELAY_MS=${MIN_DELAY_MS:-100}
+    - MAX_DELAY_MS=${MAX_DELAY_MS:-5000}
+    - WRITE_QUORUM=${WRITE_QUORUM:-4}
+    - REPLICATION_TIMEOUT_MS=${REPLICATION_TIMEOUT_MS:-10000}
     networks:
     - kvnet
     ports:

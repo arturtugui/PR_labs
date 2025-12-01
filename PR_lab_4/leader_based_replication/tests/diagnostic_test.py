@@ -1,9 +1,14 @@
 import requests
 import time
 import concurrent.futures
+from dotenv import dotenv_values
 
 LEADER_URL = "http://localhost:8000"
 FOLLOWER_URLS = [f"http://localhost:{8001+i}" for i in range(5)]
+
+# Read configuration from .env
+config = dotenv_values(".env")
+WRITE_QUORUM = int(config.get('WRITE_QUORUM', 3))
 
 # Small test with only 20 writes
 TOTAL_WRITES = 20
@@ -129,6 +134,12 @@ def analyze_consistency(data):
 if __name__ == "__main__":
     print("DIAGNOSTIC TEST - Small Write Test with Full Data Output")
     print("="*120)
+    
+    # Display configuration
+    print(f"\nConfiguration from .env:")
+    print(f"  WRITE_QUORUM = {WRITE_QUORUM}")
+    print(f"  MIN_DELAY_MS = {config.get('MIN_DELAY_MS', 'N/A')}")
+    print(f"  MAX_DELAY_MS = {config.get('MAX_DELAY_MS', 'N/A')}")
     
     # Check current quorum setting
     try:

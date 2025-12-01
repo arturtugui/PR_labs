@@ -5,11 +5,15 @@ import concurrent.futures
 import matplotlib.pyplot as plt
 import subprocess
 import yaml
+from dotenv import dotenv_values
 
 LEADER_URL = "http://localhost:8000"
 TOTAL_WRITES = 100
 CONCURRENT_BATCH = 10
 NUM_KEYS = 10
+
+# Read configuration from .env
+config = dotenv_values(".env")
 
 def send_write(key, value):
     """Send write and measure latency"""
@@ -60,6 +64,13 @@ def restart_leader():
     time.sleep(3)  # Wait for leader to be ready
 
 if __name__ == "__main__":
+    print("=== PERFORMANCE TEST - Multiple Quorum Values ===")
+    print(f"Initial configuration from .env:")
+    print(f"  MIN_DELAY_MS = {config.get('MIN_DELAY_MS', 'N/A')}")
+    print(f"  MAX_DELAY_MS = {config.get('MAX_DELAY_MS', 'N/A')}")
+    print(f"  (WRITE_QUORUM will be varied: 1-5)")
+    print()
+    
     quorums = [1, 2, 3, 4, 5]
     avg_latencies = []
 
