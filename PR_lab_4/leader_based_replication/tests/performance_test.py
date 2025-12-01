@@ -66,15 +66,13 @@ if __name__ == "__main__":
     for quorum in quorums:
         print(f"\nTesting WRITE_QUORUM = {quorum}")
 
-        # Update and restart (or do manually)
+        # Update docker-compose and restart leader automatically
         update_docker_compose_quorum(quorum)
-        # restart_leader()
-
-        input(f"Press Enter after setting WRITE_QUORUM={quorum} and restarting leader...")
+        restart_leader()
 
         avg, std = run_experiment()
         avg_latencies.append(avg)
-        print(f"   Average latency: {avg:.2f} ms (±{std:.2f})")
+        print(f"   Average latency: {avg:.2f} ms (std dev: {std:.2f})")
 
     # Plot results
     plt.figure(figsize=(10, 6))
@@ -93,7 +91,7 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.savefig('quorum_vs_latency.png', dpi=300)
     print("\nPlot saved to quorum_vs_latency.png")
-    plt.show()
+    plt.close()  # Close instead of show() so program doesn't block
 
     # Check consistency
     print("\nChecking consistency across replicas...")
@@ -102,13 +100,23 @@ if __name__ == "__main__":
     leader_dump = requests.get(f"{LEADER_URL}/dump").json()['entries']
     follower_urls = [f"http://localhost:{8001+i}" for i in range(5)]
 
+    print(f"\nLeader has {len(leader_dump)} keys")
+    
     for follower_url in follower_urls:
         follower_dump = requests.get(f"{follower_url}/dump").json()['entries']
 
         mismatches = 0
+        missing = 0
         for key in leader_dump:
-            if key in follower_dump:
-                if leader_dump[key]['seq'] != follower_dump[key]['seq']:
-                    mismatches += 1
+            if key not in follower_dump:
+                missing += 1
+            elif leader_dump[key]['seq'] != follower_dump[key]['seq']:
+                mismatches += 1
 
-        print(f"{follower_url}: {len(follower_dump)}/{len(leader_dump)} keys, {mismatches} mismatches")
+        status = "OK" if mismatches == 0 else "LAG"
+        print(f"{follower_url}: {len(follower_dump)}/{len(leader_dump)} keys, {missing} missing, {mismatches} older seq [{status}]")
+    
+    print("\nNote: Followers may lag behind due to different quorum values during tests.")
+    print("This is EXPECTED behavior in semi-synchronous replication!")
+    print("In production, lagging followers would eventually catch up.")
+    print("\nPerformance test complete!")
