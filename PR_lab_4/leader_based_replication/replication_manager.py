@@ -3,18 +3,16 @@ import time
 import random
 import requests
 import threading
-from typing import List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ---------------------------------------------------------
-# ReplicationManager handles semi-synchronous replication
-# from the leader to multiple followers.
-#
-# Responsibilities:
-#   - Read configuration from environment variables
-#   - Send replication requests concurrently
-#   - Count confirmations and enforce a configurable write quorum
-#   - Simulate network lag for testing race conditions
+# Semi-synchronous replication with write quorum:
+# - Leader writes locally and sends updates to followers concurrently.
+# - Each follower applies updates only if the sequence number is newer.
+# - The leader waits for a configurable "write quorum" of confirmations before
+#   reporting success, ensuring that at least quorum followers are consistent.
+# - Local locks prevent race conditions within a node.
+# - Followers not in the quorum may lag temporarily, achieving eventual consistency.
 # ---------------------------------------------------------
 class ReplicationManager:
     def __init__(self):
@@ -48,16 +46,19 @@ class ReplicationManager:
     #   - Each follower is contacted in its own thread.
     #   - Network lag is simulated per follower to test concurrency.
     #   - Confirms writes based on follower responses and write quorum.
+    #   - Busy waiting is replaced with futures and as_completed for efficiency.
     # -----------------------------------------------------
     def replicate_to_followers(self, key: str, value: str, seq: int) -> bool:
         confirmations = 0  # Number of followers that acknowledged
-        lock = threading.Lock()  # Protects shared counter
+
+        # Shared lock ensures that concurrent threads safely update the shared counter.
+        # If the lock were local to each thread, race conditions would occur.
+        lock = threading.Lock()
 
         # -------------------------------------------------
         # Inner function: replicate to a single follower
         # -------------------------------------------------
-        def replicate_to_one(follower_url: str):
-            nonlocal confirmations
+        def replicate_to_one(follower_url: str) -> bool:
             try:
                 # Simulate random network lag
                 delay_ms = random.randint(self.min_delay, self.max_delay)
@@ -70,29 +71,30 @@ class ReplicationManager:
                     timeout=2
                 )
 
-                # If follower confirms, increment the counter
-                if response.status_code == 200 and response.json().get('ok'):
-                    with lock:
-                        confirmations += 1
+                # Return True if follower confirms successfully
+                return response.status_code == 200 and response.json().get('ok', False)
 
             except Exception as e:
-                # Log failures but continue
+                # Log failures but continue; does not crash the leader
                 print(f"Replication to {follower_url} failed: {e}")
+                return False
 
         # -------------------------------------------------
         # Execute replication concurrently to all followers
         # -------------------------------------------------
         with ThreadPoolExecutor(max_workers=len(self.follower_urls)) as executor:
+            # Submit a task per follower
             futures = [executor.submit(replicate_to_one, url) for url in self.follower_urls]
-
-            # Wait for quorum or until timeout
             start_time = time.time()
-            while (time.time() - start_time) < (self.timeout / 1000.0):
-                with lock:
-                    if confirmations >= self.write_quorum:
-                        return True  # Quorum reached
-                time.sleep(0.01)  # Check every 10ms
 
-        # Final check after timeout
-        with lock:
-            return confirmations >= self.write_quorum
+            # Iterate over futures as they complete (efficient waiting)
+            for future in as_completed(futures, timeout=self.timeout / 1000.0):
+                if future.result():  # Increment only if follower confirmed
+                    with lock:
+                        confirmations += 1
+                        # Immediately return True if quorum is reached
+                        if confirmations >= self.write_quorum:
+                            return True
+
+        # Final check if timeout occurs before quorum
+        return confirmations >= self.write_quorum
