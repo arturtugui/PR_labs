@@ -104,4 +104,4 @@ if __name__ == "__main__":
     print("\nTesting consistency (race condition)...")
     test_consistency()
     
-    print("\n✓ All tests passed!")
+    print("\n All tests passed!")

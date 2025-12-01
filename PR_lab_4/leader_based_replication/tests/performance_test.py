@@ -120,7 +120,7 @@ if __name__ == "__main__":
         # Run experiment
         avg, std = run_experiment()
         avg_latencies.append(avg)
-        print(f"   Average latency: {avg:.2f} ms (std dev: {std:.2f})")
+        print(f"   Average latency: {avg:.2f} ms")
         
         # Wait a bit for writes to settle
         time.sleep(1)
@@ -206,7 +206,7 @@ if __name__ == "__main__":
     plt.tight_layout()
     output_path = os.path.join(OUTPUT_DIR, 'performance_results.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"\n✓ Comprehensive plot saved to {output_path}")
+    print(f"\nPlot saved to {output_path}")
     plt.close()
     
     # Generate summary report
@@ -244,7 +244,7 @@ if __name__ == "__main__":
         f.write("**Consistency Observation:** Lower quorum values result in more inconsistent followers, ")
         f.write("demonstrating the trade-off between write latency and consistency guarantees.\n")
     
-    print(f"✓ Report saved to {report_path}")
+    print(f"Report saved to {report_path}")
     
     print("\n" + "="*60)
     print("Performance test complete!")

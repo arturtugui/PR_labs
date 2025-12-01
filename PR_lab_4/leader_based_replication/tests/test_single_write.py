@@ -65,10 +65,10 @@ def test_single_write_quorum():
     print(f"Expected: ~{WRITE_QUORUM} (should be close to WRITE_QUORUM)")
     
     if followers_with_data <= WRITE_QUORUM + 1:  # Allow +1 for timing
-        print("\n✓ SUCCESS: Quorum mechanism working correctly!")
+        print("\nSUCCESS: Quorum mechanism working correctly!")
         print(f"  Only {followers_with_data} followers have data (quorum={WRITE_QUORUM})")
     else:
-        print(f"\n✗ UNEXPECTED: Too many followers have data")
+        print(f"\nUNEXPECTED: Too many followers have data")
         print(f"  Expected ~{WRITE_QUORUM}, but {followers_with_data} have it")
     
     # Wait and check again to show eventual consistency
