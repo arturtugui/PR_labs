@@ -1,0 +1,69 @@
+networks:
+  kvnet:
+    driver: bridge
+services:
+  follower1:
+    build: .
+    container_name: follower1
+    environment:
+    - ROLE=follower
+    - PORT=8001
+    networks:
+    - kvnet
+    ports:
+    - 8001:8001
+  follower2:
+    build: .
+    container_name: follower2
+    environment:
+    - ROLE=follower
+    - PORT=8002
+    networks:
+    - kvnet
+    ports:
+    - 8002:8002
+  follower3:
+    build: .
+    container_name: follower3
+    environment:
+    - ROLE=follower
+    - PORT=8003
+    networks:
+    - kvnet
+    ports:
+    - 8003:8003
+  follower4:
+    build: .
+    container_name: follower4
+    environment:
+    - ROLE=follower
+    - PORT=8004
+    networks:
+    - kvnet
+    ports:
+    - 8004:8004
+  follower5:
+    build: .
+    container_name: follower5
+    environment:
+    - ROLE=follower
+    - PORT=8005
+    networks:
+    - kvnet
+    ports:
+    - 8005:8005
+  leader:
+    build: .
+    container_name: leader
+    environment:
+    - ROLE=leader
+    - PORT=8000
+    - FOLLOWERS=http://follower1:8001,http://follower2:8002,http://follower3:8003,http://follower4:8004,http://follower5:8005
+    - MIN_DELAY_MS=${MIN_DELAY_MS:-100}
+    - MAX_DELAY_MS=${MAX_DELAY_MS:-5000}
+    - WRITE_QUORUM=${WRITE_QUORUM:-4}
+    - REPLICATION_TIMEOUT_MS=${REPLICATION_TIMEOUT_MS:-10000}
+    networks:
+    - kvnet
+    ports:
+    - 8000:8000
